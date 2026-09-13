@@ -81,6 +81,20 @@ SEVERITY_COLORS = {
 SEVERITY_LABELS = {"high": "Критичное", "medium": "Среднее", "low": "Незначительное"}
 
 
+# Подпись вида проверки в шапке отчёта: язык кода или нормоконтроль .docx
+_CHECK_LABELS = {
+    "python": "Python (PEP 8)",
+    "javascript": "JavaScript (стиль)",
+    "sql": "SQL (стиль)",
+    "java": "Java (конвенции)",
+    "cpp": "C/C++ (стиль)",
+}
+
+
+def _check_label(report: dict) -> str:
+    return _CHECK_LABELS.get(report.get("file_type"), "Нормоконтроль ГОСТ/АГУ")
+
+
 def generate_pdf_report(report: dict[str, Any]) -> bytes:
     _ensure_fonts()
 
@@ -101,7 +115,7 @@ def generate_pdf_report(report: dict[str, Any]) -> bytes:
 
     elems.append(Paragraph("SmartDoc &amp; Code Review", title_s))
 
-    label = "Python (PEP 8)" if report.get("file_type") == "python" else "Нормоконтроль ГОСТ/АГУ"
+    label = _check_label(report)
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
     elems.append(Paragraph(
         f"Файл: <b>{_s(report['filename'])}</b> | Проверка: {label} | Дата: {now}", sub_s))

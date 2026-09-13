@@ -21,7 +21,7 @@ from typing import Any
 
 from docx.document import Document as DocxDocument
 from docx.text.paragraph import Paragraph
-from docx.shared import RGBColor, Pt
+from docx.shared import RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -107,7 +107,7 @@ def check_table_captions(document: DocxDocument) -> list[dict[str, Any]]:
                         "«Таблица N — Название» (тире, не дефис)"
                     ),
                     "severity": "medium",
-                    "expected": f"Таблица N — Название",
+                    "expected": "Таблица N — Название",
                     "actual": prev_paragraph_text[:80],
                 }
             )
@@ -439,14 +439,14 @@ def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
             not style_bold and not has_non_bold_runs
         )
         if not is_bold and paragraph.runs:
-                issues.append({
-                    "location": f"Заголовок: «{text[:60]}»",
-                    "code": "HEADING_NOT_BOLD",
-                    "message": "Заголовок не выделен жирным",
-                    "description": "Заголовки оформляются полужирным начертанием",
-                    "severity": "medium",
-                    "expected": "полужирный", "actual": "обычный",
-                })
+            issues.append({
+                "location": f"Заголовок: «{text[:60]}»",
+                "code": "HEADING_NOT_BOLD",
+                "message": "Заголовок не выделен жирным",
+                "description": "Заголовки оформляются полужирным начертанием",
+                "severity": "medium",
+                "expected": "полужирный", "actual": "обычный",
+            })
     return issues
 
 
@@ -657,6 +657,7 @@ def check_paragraph_spacing(document: DocxDocument) -> list[dict[str, Any]]:
 # ═══════ 14. Нумерация разделов ═══════
 
 SECTION_NUM_RE = re.compile(r"^(\d+(?:\.\d+)*)\s+")
+
 
 def check_heading_numbering(document: DocxDocument) -> list[dict[str, Any]]:
     """Проверяет последовательность нумерации заголовков."""
@@ -871,6 +872,7 @@ def check_appendix_format(document: DocxDocument) -> list[dict[str, Any]]:
 BIB_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 BIB_PAGES_RE = re.compile(r"\d+\s*[сcС]\b\.?|\d+\s*p\b\.?", re.IGNORECASE)
 
+
 def check_bibliography_format(document: DocxDocument) -> list[dict[str, Any]]:
     """Проверяет формат отдельных записей в списке литературы."""
     issues: list[dict[str, Any]] = []
@@ -898,7 +900,7 @@ def check_bibliography_format(document: DocxDocument) -> list[dict[str, Any]]:
                 issues.append({
                     "location": f"Источник №{entry_count}",
                     "code": "BIB_NO_YEAR",
-                    "message": f"Не найден год издания в записи",
+                    "message": "Не найден год издания в записи",
                     "description": "Каждый источник должен содержать год издания",
                     "severity": "low",
                     "expected": "год (19xx или 20xx)", "actual": text[:60],

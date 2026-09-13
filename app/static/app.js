@@ -1,7 +1,7 @@
-/* SmartDoc & Code Review v7.0 — only .py and .docx, no AI */
+/* SmartDoc & Code Review v8.0 — .docx + код (Python, JS, SQL, Java, C/C++), без ИИ */
 (() => {
     'use strict';
-    console.log('[SmartDoc v7.4] JS loaded');
+    console.log('[SmartDoc v8.0] JS loaded');
     const $ = id => document.getElementById(id);
     const dropzone = $('dropzone'), fileInput = $('file-input'), browseButton = $('browse-button');
     const uploadIdle = $('upload-idle'), uploadLoading = $('upload-loading'), loadingFilename = $('loading-filename');
@@ -20,7 +20,49 @@
     const themeToggle = $('theme-toggle');
     const historyList = $('history-list'), historyEmpty = $('history-empty'), clearHistoryBtn = $('clear-history-button');
 
-    const ALLOWED = ['.py', '.docx'];
+    // Языки: расширение → как показывать и что с ним можно делать.
+    // Источник истины — /api/languages на сервере; здесь дублируем, чтобы
+    // не ждать сеть перед первой проверкой, и синхронизируем при загрузке.
+    const LANGUAGES = {
+        '.docx': { badge: 'DOCX', name: 'Документ Word', subtitle: 'Нормоконтроль · ГОСТ/АГУ', autofix: true },
+        '.py':   { badge: 'PY',   name: 'Python',        subtitle: 'PEP 8 · flake8',           autofix: true },
+        '.js':   { badge: 'JS',   name: 'JavaScript',    subtitle: 'Стиль JavaScript',         autofix: false },
+        '.sql':  { badge: 'SQL',  name: 'SQL',           subtitle: 'Стиль SQL',                autofix: false },
+        '.java': { badge: 'JAVA', name: 'Java',          subtitle: 'Конвенции Java',           autofix: false },
+        '.cpp':  { badge: 'C++',  name: 'C++',           subtitle: 'Стиль C/C++',              autofix: false },
+        '.c':    { badge: 'C',    name: 'C',             subtitle: 'Стиль C/C++',              autofix: false },
+        '.h':    { badge: 'H',    name: 'C/C++ Header',  subtitle: 'Стиль C/C++',              autofix: false },
+    };
+    const ALLOWED = Object.keys(LANGUAGES);
+
+    // file_type из отчёта сервера → бейдж. Документ — единственный не-код.
+    const FILE_TYPE_BADGES = {
+        docx: 'DOCX', python: 'PY', javascript: 'JS',
+        sql: 'SQL', java: 'JAVA', cpp: 'C/C++',
+    };
+    const CODE_FILE_TYPES = new Set(['python', 'javascript', 'sql', 'java', 'cpp']);
+
+    const extOf = name => '.' + String(name).split('.').pop().toLowerCase();
+    // Отчёт по коду: есть исходник, можно показать подсветку и контекст строки
+    const isCodeReport = report => CODE_FILE_TYPES.has(report.file_type);
+    const badgeFor = report => FILE_TYPE_BADGES[report.file_type] || '?';
+    const canAutofix = ext => !!(LANGUAGES[ext] && LANGUAGES[ext].autofix);
+
+    // Подтягиваем актуальный список форматов с сервера — если там появится
+    // новый язык, интерфейс узнает о нём без правки этого файла.
+    fetch('/api/languages').then(r => r.ok ? r.json() : null).then(data => {
+        if (!data || !Array.isArray(data.formats)) return;
+        data.formats.forEach(f => {
+            if (LANGUAGES[f.extension]) { LANGUAGES[f.extension].autofix = f.autofix; return; }
+            LANGUAGES[f.extension] = {
+                badge: f.extension.slice(1).toUpperCase(),
+                name: f.name,
+                subtitle: f.name,
+                autofix: f.autofix,
+            };
+            ALLOWED.push(f.extension);
+        });
+    }).catch(() => {});
     const HISTORY_KEY = 'smartdoc-history';
 
     const VERDICTS = {
@@ -247,6 +289,7 @@
     // ─── Paste Area ───
     const pasteToggle = $('paste-toggle'), pasteEditor = $('paste-editor');
     const pasteTextarea = $('paste-textarea'), pasteCheck = $('paste-check'), pasteClear = $('paste-clear');
+    const pasteLanguage = $('paste-language');
 
     pasteToggle.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -264,9 +307,10 @@
     pasteCheck.addEventListener('click', () => {
         const code = pasteTextarea.value;
         if (!code.trim()) { alert('Вставьте код для проверки'); return; }
-        // Create a virtual .py file from the pasted code
-        const blob = new Blob([code], { type: 'text/x-python' });
-        const file = new File([blob], 'pasted_code.py', { type: 'text/x-python' });
+        // Собираем виртуальный файл с расширением выбранного языка
+        const ext = (pasteLanguage && pasteLanguage.value) || '.py';
+        const blob = new Blob([code], { type: 'text/plain' });
+        const file = new File([blob], 'pasted_code' + ext, { type: 'text/plain' });
         handleFile(file);
     });
 
@@ -282,7 +326,8 @@
         if (!text || !text.trim()) return;
 
         // Check if it looks like code (has newlines or common code patterns)
-        const looksLikeCode = text.includes('\n') || /^\s*(import |from |def |class |if |for |while |#)/.test(text);
+        const looksLikeCode = text.includes('\n')
+            || /^\s*(import |from |def |class |if |for |while |#|\/\/|const |let |var |function |public |SELECT |select )/.test(text);
         if (!looksLikeCode) return;
 
         e.preventDefault();
@@ -349,7 +394,7 @@
         const beforeIssues = currentReport ? currentReport.total_issues : 0;
         try {
             const fd = new FormData(); fd.append('file', currentFile);
-            const ext = '.' + currentFile.name.split('.').pop().toLowerCase();
+            const ext = extOf(currentFile.name);
             if (ext === '.docx') {
                 fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
             }
@@ -410,8 +455,11 @@
 
     // ─── Main handler ───
     async function handleFile(file) {
-        const ext = '.' + file.name.split('.').pop().toLowerCase();
-        if (!ALLOWED.includes(ext)) { showError(`Формат ${ext} не поддерживается. Допустимы: .py, .docx`); return; }
+        const ext = extOf(file.name);
+        if (!ALLOWED.includes(ext)) {
+            showError(`Формат ${ext} не поддерживается. Допустимы: ${ALLOWED.join(', ')}`);
+            return;
+        }
         showLoading(file.name);
         currentFile = file;
         const fd = new FormData(); fd.append('file', file);
@@ -489,7 +537,7 @@
             + '<th>Файл</th><th>Тип</th><th>Статус</th><th>Ошибок</th><th>Крит.</th><th>Средн.</th><th>Незнач.</th>'
             + '</tr></thead><tbody>';
         data.reports.forEach(r => {
-            const badge = r.file_type === 'python' ? 'PY' : r.file_type === 'docx' ? 'DOCX' : '?';
+            const badge = badgeFor(r);
             const vKey = r.total_issues === 0 ? 'good' : (r.verdict || (r.summary.high > 0 ? 'bad' : 'ok'));
             const vLabel = VERDICTS[vKey] ? VERDICTS[vKey].title : '—';
             const rowClass = r.total_issues === 0 ? 'batch-table__row--ok' : r.summary.high > 0 ? 'batch-table__row--high' : '';
@@ -502,7 +550,7 @@
 
         // Per-file accordion
         data.reports.forEach((report, idx) => {
-            const badge = report.file_type === 'python' ? 'PY' : report.file_type === 'docx' ? 'DOCX' : '?';
+            const badge = badgeFor(report);
             const statusIcon = report.error ? '⚠' : report.total_issues === 0 ? '✓' : report.total_issues;
             const statusClass = report.error ? 'batch-file--error' : report.total_issues === 0 ? 'batch-file--ok' : 'batch-file--issues';
 
@@ -543,17 +591,38 @@
         setTimeout(() => reportSection.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
     }
 
+    // Автоисправление есть не у всех языков: для остальных кнопку гасим
+    // и объясняем причину подсказкой, а не молчаливой блокировкой.
+    function updateAutofixButton(report) {
+        if (report.error || !currentFile) {
+            autofixButton.disabled = true;
+            autofixButton.title = '';
+            return;
+        }
+        const ext = extOf(currentFile.name);
+        if (!canAutofix(ext)) {
+            autofixButton.disabled = true;
+            const name = (LANGUAGES[ext] && LANGUAGES[ext].name) || ext;
+            autofixButton.title = `Автоисправление для ${name} пока не поддерживается — доступна только проверка`;
+            return;
+        }
+        autofixButton.disabled = false;
+        autofixButton.title = '';
+    }
+
     function showLoading(fn) { uploadIdle.hidden = true; uploadLoading.hidden = false; loadingFilename.textContent = fn; setReportVisible(false); }
     function hideLoading() { uploadIdle.hidden = false; uploadLoading.hidden = true; }
 
     // ─── Render report ───
     function renderReport(report) {
         setReportVisible(true);
-        reportType.textContent = report.file_type === 'python' ? 'PY' : 'DOCX';
+        reportType.textContent = badgeFor(report);
         reportFilename.textContent = report.filename;
         const parts = [];
-        if (report.file_type === 'python') {
-            parts.push('PEP 8 · flake8');
+        if (isCodeReport(report)) {
+            parts.push(report.file_type === 'python'
+                ? 'PEP 8 · flake8'
+                : `Стиль · ${report.language_name || badgeFor(report)}`);
             if (report.source_lines && report.source_lines.length) parts.push(`${report.source_lines.length} строк`);
         } else {
             parts.push('Нормоконтроль · ГОСТ/АГУ');
@@ -577,14 +646,14 @@
         sevBarLow.style.width = (report.summary.low/tot*100)+'%';
 
         reportBody.innerHTML = '';
-        autofixButton.disabled = !!report.error || !currentFile;
+        updateAutofixButton(report);
         pdfButton.disabled = !!report.error;
         if (report.error) { reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`; sourceViewer.hidden = true; return; }
         if (!report.issues.length) {
             reportBody.innerHTML = '<div class="empty-state"><div class="empty-state__icon">✓</div><div class="empty-state__title">Замечаний не найдено</div><div class="empty-state__text">Файл соответствует всем проверяемым требованиям.</div></div>';
             autofixButton.disabled = true;
             // Still show source code without errors if available
-            if (report.file_type === 'python' && report.source_lines && report.source_lines.length) {
+            if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
                 renderSourceViewer(report);
             } else {
                 sourceViewer.hidden = true;
@@ -603,7 +672,7 @@
         });
 
         // Render source viewer for Python files
-        if (report.file_type === 'python' && report.source_lines && report.source_lines.length) {
+        if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
             renderSourceViewer(report, errorsByLine);
         } else {
             sourceViewer.hidden = true;
@@ -644,11 +713,11 @@
 
         // For Python with few issues or single group — flat list
         const groupKeys = Object.keys(groups);
-        if (report.file_type === 'python' || (groupKeys.length <= 1 && report.issues.length <= 10)) {
+        if (isCodeReport(report) || (groupKeys.length <= 1 && report.issues.length <= 10)) {
             report.issues.forEach((iss, i) => {
                 const el = renderIssue(iss, report);
                 el.style.transitionDelay = Math.min(i * 40, 400) + 'ms';
-                if (iss.line && report.file_type === 'python') {
+                if (iss.line && isCodeReport(report)) {
                     el.style.cursor = 'pointer';
                     el.addEventListener('click', () => scrollToSourceLine(iss.line));
                 }
@@ -677,7 +746,7 @@
                 issues.forEach(iss => {
                     const el = renderIssue(iss, report);
                     el.style.transitionDelay = Math.min(globalIdx * 20, 200) + 'ms';
-                    if (iss.line && report.file_type === 'python') {
+                    if (iss.line && isCodeReport(report)) {
                         el.style.cursor = 'pointer';
                         el.addEventListener('click', () => scrollToSourceLine(iss.line));
                     }
@@ -876,7 +945,7 @@
         const el = document.createElement('article');
         el.className = `issue issue--${iss.severity}`;
         const loc = document.createElement('div'); loc.className = 'issue__location';
-        loc.textContent = report.file_type === 'python'
+        loc.textContent = isCodeReport(report)
             ? `стр. ${iss.line}${iss.column?':'+iss.column:''}`
             : (iss.location||'');
         const body = document.createElement('div'); body.className = 'issue__body';
@@ -889,7 +958,7 @@
             if (iss.actual) h += `<span>✗ ${esc(iss.actual)}</span>`;
             body.innerHTML += h + '</div>';
         }
-        if (report.file_type === 'python' && report.source_lines && report.source_lines.length && iss.line) {
+        if (isCodeReport(report) && report.source_lines && report.source_lines.length && iss.line) {
             const s = Math.max(1,iss.line-1), e = Math.min(report.source_lines.length,iss.line+1);
             const pre = document.createElement('div'); pre.className = 'issue__source';
             for (let i=s; i<=e; i++) {
@@ -947,7 +1016,7 @@
         h.forEach((e, idx) => {
             const el = document.createElement('div'); el.className = 'history-item';
             el.style.cursor = 'pointer';
-            const badge = e.file_type === 'python' ? 'PY' : 'DOCX';
+            const badge = badgeFor(e);
             const d = new Date(e.timestamp);
             const ds = d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
             const s = e.summary || {};

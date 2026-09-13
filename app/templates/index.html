@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartDoc — нормоконтроль .docx и проверка Python-кода</title>
-    <meta name="description" content="Проверка пояснительной записки .docx по требованиям АГУ (ФЦТиК) и Python-кода по PEP 8. Замечания с точным местом и исправленная копия.">
+    <title>SmartDoc — нормоконтроль .docx и проверка кода</title>
+    <meta name="description" content="Проверка пояснительной записки .docx по требованиям АГУ (ФЦТиК) и кода на Python, JavaScript, SQL, Java, C/C++. Замечания с точным местом и исправленная копия.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -36,21 +36,32 @@
     <section class="hero" id="upload">
         <div class="hero__text">
             <h1>Записка без замечаний по оформлению — с первого раза</h1>
-            <p class="hero__lede">Загрузите .docx или .py и получите список замечаний нормоконтроля АГУ (ФЦТиК) или PEP&nbsp;8. Оформление исправится автоматически, содержание останется вашим.</p>
+            <p class="hero__lede">Загрузите .docx и получите список замечаний нормоконтроля АГУ (ФЦТиК), либо файл с кодом — Python, JavaScript, SQL, Java, C/C++ — и получите разбор по стилю. Оформление .docx и Python исправится автоматически, содержание останется вашим.</p>
 
             <div class="drop" id="dropzone">
-                <input type="file" id="file-input" accept=".py,.docx" multiple hidden>
+                <input type="file" id="file-input" accept=".docx,.py,.js,.sql,.java,.cpp,.c,.h" multiple hidden>
                 <div class="drop__inner" id="upload-idle">
                     <div class="drop__icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
                     </div>
                     <div class="drop__title">Перетащите файл сюда</div>
-                    <div class="drop__sub">или <button type="button" class="link" id="browse-button">выберите на компьютере</button> · .docx, .py · до 5 МБ · можно несколько</div>
+                    <div class="drop__sub">или <button type="button" class="link" id="browse-button">выберите на компьютере</button> · .docx, .py, .js, .sql, .java, .cpp · до 5 МБ · можно несколько</div>
                     <button type="button" class="link link--muted" id="paste-toggle">Вставить код из буфера</button>
                 </div>
                 <div class="drop__editor" id="paste-editor" hidden>
-                    <textarea id="paste-textarea" placeholder="Вставьте Python-код сюда…" spellcheck="false"></textarea>
+                    <textarea id="paste-textarea" placeholder="Вставьте код сюда…" spellcheck="false"></textarea>
                     <div class="drop__editor-actions">
+                        <label class="drop__editor-lang">
+                            <span>Язык</span>
+                            <select id="paste-language">
+                                <option value=".py" selected>Python</option>
+                                <option value=".js">JavaScript</option>
+                                <option value=".sql">SQL</option>
+                                <option value=".java">Java</option>
+                                <option value=".cpp">C++</option>
+                                <option value=".c">C</option>
+                            </select>
+                        </label>
                         <button type="button" class="btn btn--sm" id="paste-check">Проверить</button>
                         <button type="button" class="btn btn--ghost btn--sm" id="paste-clear">Очистить</button>
                     </div>
@@ -144,7 +155,7 @@
         <h2>Как это работает</h2>
         <p class="how__sub">Три шага, без регистрации. Проверка занимает несколько секунд даже для записки на 60 страниц.</p>
         <div class="steps">
-            <div class="step"><em>Шаг 1</em><h3>Загрузите документ</h3><p>Файл .docx с курсовой, отчётом по практике или ВКР. Или Python-скрипт для проверки по PEP 8.</p></div>
+            <div class="step"><em>Шаг 1</em><h3>Загрузите документ</h3><p>Файл .docx с курсовой, отчётом по практике или ВКР. Или файл с кодом — Python, JavaScript, SQL, Java, C/C++.</p></div>
             <div class="step"><em>Шаг 2</em><h3>Посмотрите замечания</h3><p>Каждое замечание указывает, где оно найдено, что ожидалось и что есть на самом деле.</p></div>
             <div class="step"><em>Шаг 3</em><h3>Скачайте исправленную копию</h3><p>Поля, шрифт, интервалы и отступы приведены к требованиям кафедры. Титульный лист и текст не тронуты.</p></div>
         </div>
@@ -157,7 +168,7 @@
             <ul>
                 <li>Замечания до того, как их увидит преподаватель</li>
                 <li>Готовый шаблон записки по требованиям кафедры</li>
-                <li>Проверка Python-кода по PEP 8 для приложений</li>
+                <li>Проверка кода в приложениях: Python (PEP 8), JavaScript, SQL, Java, C/C++</li>
             </ul>
         </div>
         <div class="who__card">
@@ -172,7 +183,7 @@
     </section>
 
     <section class="trust">
-        <p>Правила сверены с <b>работой, принятой кафедрой ИТиК без единого замечания</b>. Ядро проверки покрыто 265 автотестами, 34 правила оформления ФЦТиК АГУ.</p>
+        <p>Правила сверены с <b>работой, принятой кафедрой ИТиК без единого замечания</b>. Ядро проверки покрыто 345 автотестами, 34 правила оформления ФЦТиК АГУ.</p>
         <a class="btn btn--soft" href="/rules" target="_blank" rel="noopener" id="rules-doc-link">Список правил</a>
     </section>
 
@@ -261,7 +272,7 @@
             <button type="button" class="modal__close" id="onboarding-close" aria-label="Закрыть">&times;</button>
         </div>
         <div class="modal__body">
-            <p class="modal__p">SmartDoc проверяет оформление документов <b>.docx</b> по требованиям АГУ (ФЦТиК) и код <b>.py</b> по PEP 8. Ничего не сохраняет: файл удаляется сразу после проверки.</p>
+            <p class="modal__p">SmartDoc проверяет оформление документов <b>.docx</b> по требованиям АГУ (ФЦТиК) и код по стилевым конвенциям языка: <b>.py</b> — PEP 8, а также <b>.js</b>, <b>.sql</b>, <b>.java</b>, <b>.cpp</b>/<b>.c</b>/<b>.h</b>. Ничего не сохраняет: файл удаляется сразу после проверки.</p>
             <p class="modal__p">Если в вашем вузе другие требования, откройте <b>«Правила»</b> в шапке и задайте свои шрифт, поля и интервалы.</p>
             <div class="modal__box">По умолчанию: Times New Roman 14 (допускается 12) · интервал 1,5 · красная строка 1,25 см · поля 3,5 / 1 / 2,5 / 2,5 см</div>
         </div>

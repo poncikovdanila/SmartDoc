@@ -1,12 +1,19 @@
-"""SmartDoc & Code Review v7.
+"""SmartDoc & Code Review v8.
 
 Маршруты:
     GET  /               — главная
-    POST /api/check      — проверка (.py или .docx) → JSON-отчёт
+    POST /api/check      — проверка (код или .docx) → JSON-отчёт
+    POST /api/check-batch — пакетная проверка нескольких файлов
     POST /api/autofix    — автоисправление → скачивание файла
+    POST /api/autofix-preview — предпросмотр автоисправления
     POST /api/export-pdf — экспорт отчёта в PDF
+    POST /api/generate-template — шаблон .docx по текущим правилам
     GET  /api/presets    — список пресетов правил для .docx
+    GET  /api/languages  — поддерживаемые языки и форматы
     GET  /health         — health-check
+
+Поддерживаемые форматы: .docx (нормоконтроль АГУ/ГОСТ) и код на Python,
+JavaScript, SQL, Java, C/C++. Автоисправление есть для .py и .docx.
 """
 from __future__ import annotations
 
@@ -26,12 +33,24 @@ from app.checkers.code_checker import check_python_code
 from app.checkers.code_fixer import autofix_python_code
 from app.checkers.docx_checker import check_docx_document, PRESETS
 from app.checkers.docx_fixer import autofix_docx
+from app.checkers.multi_lang_checker import (
+    AUTOFIX_EXTENSIONS,
+    LANGUAGE_NAMES,
+    SUPPORTED_CODE_EXTENSIONS,
+    check_code_file,
+)
 from app.pdf_export import generate_pdf_report
 from app.template_generator import generate_template
 
 BASE_DIR = Path(__file__).resolve().parent
 MAX_FILE_SIZE = 5 * 1024 * 1024
-ALLOWED_EXTENSIONS = {".py", ".docx"}
+ALLOWED_EXTENSIONS = {".docx"} | SUPPORTED_CODE_EXTENSIONS
+# Порядок для сообщений об ошибках: сначала самые частые форматы
+_EXT_ORDER = [".docx", ".py", ".js", ".sql", ".java", ".cpp", ".c", ".h"]
+ALLOWED_EXTENSIONS_TEXT = ", ".join(
+    [e for e in _EXT_ORDER if e in ALLOWED_EXTENSIONS]
+    + sorted(ALLOWED_EXTENSIONS - set(_EXT_ORDER))
+)
 
 
 def _content_disposition(filename: str) -> str:
@@ -40,13 +59,18 @@ def _content_disposition(filename: str) -> str:
     encoded_name = quote(filename)
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
+
 app = FastAPI(
     title="SmartDoc & Code Review",
-    description="Проверка Python-кода (PEP 8) и документов .docx (ГОСТ/АГУ).",
-    version="7.0.0",
+    description=(
+        "Проверка кода (Python/PEP 8, JavaScript, SQL, Java, C/C++) "
+        "и документов .docx (нормоконтроль ГОСТ/АГУ)."
+    ),
+    version="8.0.0",
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
 @app.get("/rules", include_in_schema=False)
@@ -57,7 +81,27 @@ async def rules_document():
     if not path.exists():
         raise HTTPException(404, "Документ не найден")
     return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown; charset=utf-8")
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+def _parse_rules(docx_rules: str | None) -> dict | None:
+    """Разбирает JSON с пользовательскими правилами .docx. Мусор игнорируем."""
+    if not docx_rules:
+        return None
+    import json as _json
+    try:
+        parsed = _json.loads(docx_rules)
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _run_check(tmp: Path, ext: str, filename: str, custom_rules: dict | None) -> dict:
+    """Направляет файл в нужный чекер по расширению."""
+    if ext == ".docx":
+        return check_docx_document(tmp, filename, custom_rules)
+    if ext == ".py":
+        return check_python_code(tmp, filename)
+    return check_code_file(tmp, filename, ext)
 
 
 def _validate(file: UploadFile, content: bytes) -> str:
@@ -65,12 +109,28 @@ def _validate(file: UploadFile, content: bytes) -> str:
         raise HTTPException(400, "Имя файла не указано")
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(400, f"Формат {ext} не поддерживается. Допустимы: .py, .docx")
+        raise HTTPException(
+            400,
+            f"Формат {ext} не поддерживается. "
+            f"Допустимы: {ALLOWED_EXTENSIONS_TEXT}",
+        )
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(413, f"Файл слишком большой (макс. {MAX_FILE_SIZE // 1024 // 1024} МБ)")
     if not content:
         raise HTTPException(400, "Файл пуст")
     return ext
+
+
+def _require_autofix_support(ext: str) -> None:
+    """Автоисправление есть не для всех форматов — остальным отвечаем понятно."""
+    if ext in AUTOFIX_EXTENSIONS:
+        return
+    language = LANGUAGE_NAMES.get(ext, ext)
+    raise HTTPException(
+        422,
+        f"Автоисправление для {language} пока не поддерживается — "
+        f"доступна только проверка. Исправлять автоматически умеем .py и .docx",
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -85,21 +145,12 @@ async def check_file(file: Annotated[UploadFile, File(...)],
     ext = _validate(file, content)
     tmp = Path(tempfile.gettempdir()) / f"sd_{uuid.uuid4().hex}{ext}"
 
-    # Парсим пользовательские правила для .docx (если переданы)
-    custom_rules = None
-    if docx_rules:
-        import json as _json
-        try:
-            custom_rules = _json.loads(docx_rules)
-        except (ValueError, TypeError):
-            pass
+    # Пользовательские правила нужны только для .docx, но разбираем всегда
+    custom_rules = _parse_rules(docx_rules)
 
     try:
         tmp.write_bytes(content)
-        if ext == ".py":
-            report = check_python_code(tmp, file.filename or "")
-        else:
-            report = check_docx_document(tmp, file.filename or "", custom_rules)
+        report = _run_check(tmp, ext, file.filename or "", custom_rules)
         return JSONResponse(content=report)
     finally:
         try:
@@ -112,13 +163,7 @@ async def check_file(file: Annotated[UploadFile, File(...)],
 async def check_batch(files: Annotated[list[UploadFile], File(...)],
                       docx_rules: Annotated[str | None, Form()] = None):
     """Пакетная проверка нескольких файлов."""
-    custom_rules = None
-    if docx_rules:
-        import json as _json
-        try:
-            custom_rules = _json.loads(docx_rules)
-        except (ValueError, TypeError):
-            pass
+    custom_rules = _parse_rules(docx_rules)
 
     reports = []
     total_issues = 0
@@ -142,10 +187,7 @@ async def check_batch(files: Annotated[list[UploadFile], File(...)],
         tmp = Path(tempfile.gettempdir()) / f"sd_b_{uuid.uuid4().hex}{ext}"
         try:
             tmp.write_bytes(content)
-            if ext == ".py":
-                report = check_python_code(tmp, file.filename or "")
-            else:
-                report = check_docx_document(tmp, file.filename or "", custom_rules)
+            report = _run_check(tmp, ext, file.filename or "", custom_rules)
             reports.append(report)
             total_issues += report["total_issues"]
             for sev in ("high", "medium", "low"):
@@ -181,6 +223,7 @@ async def autofix_preview(file: Annotated[UploadFile, File(...)],
     content = await file.read()
     ext = _validate(file, content)
     name = file.filename or f"file{ext}"
+    _require_autofix_support(ext)
 
     if ext == ".py":
         try:
@@ -197,13 +240,7 @@ async def autofix_preview(file: Annotated[UploadFile, File(...)],
         })
 
     # .docx — возвращаем сводку (полный diff невозможен для бинарного формата)
-    custom_rules = None
-    if docx_rules:
-        import json as _json
-        try:
-            custom_rules = _json.loads(docx_rules)
-        except (ValueError, TypeError):
-            pass
+    custom_rules = _parse_rules(docx_rules)
 
     tmp = Path(tempfile.gettempdir()) / f"sd_prev_{uuid.uuid4().hex}.docx"
     try:
@@ -245,14 +282,9 @@ async def autofix(file: Annotated[UploadFile, File(...)],
     content = await file.read()
     ext = _validate(file, content)
     name = file.filename or f"file{ext}"
+    _require_autofix_support(ext)
 
-    custom_rules = None
-    if docx_rules:
-        import json as _json
-        try:
-            custom_rules = _json.loads(docx_rules)
-        except (ValueError, TypeError):
-            pass
+    custom_rules = _parse_rules(docx_rules)
 
     try:
         if ext == ".py":
@@ -310,13 +342,7 @@ async def export_pdf(report: dict):
 @app.post("/api/generate-template")
 async def api_generate_template(docx_rules: Annotated[str | None, Form()] = None):
     """Генерирует шаблон .docx по текущим правилам."""
-    custom_rules = None
-    if docx_rules:
-        import json as _json
-        try:
-            custom_rules = _json.loads(docx_rules)
-        except (ValueError, TypeError):
-            pass
+    custom_rules = _parse_rules(docx_rules)
     try:
         template_bytes = generate_template(custom_rules)
     except Exception as e:
@@ -334,6 +360,26 @@ async def get_presets():
     return JSONResponse(content=PRESETS)
 
 
+@app.get("/api/languages")
+async def get_languages():
+    """Какие форматы принимаются и где доступно автоисправление."""
+    return JSONResponse(content={
+        "formats": [
+            {
+                "extension": ext,
+                "name": LANGUAGE_NAMES.get(ext, "Документ Word"),
+                "kind": "code" if ext in SUPPORTED_CODE_EXTENSIONS else "document",
+                "autofix": ext in AUTOFIX_EXTENSIONS,
+            }
+            for ext in (
+                [e for e in _EXT_ORDER if e in ALLOWED_EXTENSIONS]
+                + sorted(ALLOWED_EXTENSIONS - set(_EXT_ORDER))
+            )
+        ],
+        "max_file_size": MAX_FILE_SIZE,
+    })
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "SmartDoc & Code Review", "version": "7.0.0"}
+    return {"status": "ok", "service": "SmartDoc & Code Review", "version": "8.0.0"}

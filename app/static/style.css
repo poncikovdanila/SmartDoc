@@ -78,7 +78,9 @@ button { font-family: inherit; }
 .drop__title { font-weight: 600; font-size: 16px; }
 .drop__sub { color: var(--ink2); font-size: 13.5px; margin-top: 4px; }
 .drop__editor textarea { width: 100%; min-height: 200px; resize: vertical; font-family: var(--mono); font-size: 13px; line-height: 1.5; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; color: var(--ink); }
-.drop__editor-actions { display: flex; gap: 8px; margin-top: 10px; }
+.drop__editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.drop__editor-lang { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: 13px; color: var(--ink2); }
+.drop__editor-lang select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; color: var(--ink); cursor: pointer; }
 .spinner { width: 34px; height: 34px; margin: 4px auto 12px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--acc); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

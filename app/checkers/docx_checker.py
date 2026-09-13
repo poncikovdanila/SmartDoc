@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
-from docx.shared import Cm, Pt
 from docx.document import Document as DocxDocument
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
@@ -168,6 +167,7 @@ def _get_rules(custom_rules: dict[str, Any] | None = None) -> dict[str, Any]:
 def _clamp(value: float, lo: float, hi: float) -> float:
     """Ограничивает значение диапазоном [lo, hi]."""
     return max(lo, min(hi, value))
+
 
 # Точность сравнения для значений с плавающей точкой. В .docx размеры обычно
 # хранятся точно, но при импорте из других редакторов бывают отклонения.
