@@ -11,6 +11,9 @@
     const heroSection = $('upload');
     function setReportVisible(v) { reportSection.hidden = !v; if (heroSection) heroSection.hidden = v; }
     const autofixButton = $('autofix-button'), pdfButton = $('pdf-button');
+    const previewButton = $('preview-button'), previewModal = $('preview-modal');
+    const previewBody = $('preview-body'), previewClose = $('preview-close');
+    const previewCancel = $('preview-cancel'), previewApply = $('preview-apply');
     const statTotal = $('stat-total'), statHigh = $('stat-high');
     const statMedium = $('stat-medium'), statLow = $('stat-low');
     const verdictCard = $('verdict-card'), verdictIcon = $('verdict-icon');
@@ -386,7 +389,7 @@
     });
 
     // ─── Autofix ───
-    autofixButton.addEventListener('click', async () => {
+    async function runAutofix() {
         if (!currentFile) return;
         autofixButton.disabled = true;
         const orig = autofixButton.innerHTML;
@@ -431,6 +434,169 @@
             }
         } catch (err) { alert('Не удалось: ' + err.message); }
         finally { autofixButton.disabled = false; autofixButton.innerHTML = orig; }
+    }
+
+    autofixButton.addEventListener('click', runAutofix);
+
+    // ─── Предпросмотр автоисправления ───
+    // Автоисправление меняет файл и сразу кладёт его в загрузки. Перед этим
+    // стоит показать, что именно изменится: для кода — построчный diff, для
+    // .docx полного diff не получить (бинарный формат), поэтому показываем,
+    // сколько замечаний уйдёт.
+
+    // Классический diff по наибольшей общей подпоследовательности.
+    // Файлы здесь не больше нескольких тысяч строк, поэтому таблицы O(n·m)
+    // достаточно — ради экономии сначала срезаем совпадающие края.
+    function diffLines(before, after) {
+        let head = 0;
+        while (head < before.length && head < after.length && before[head] === after[head]) head++;
+        let tail = 0;
+        while (tail < before.length - head && tail < after.length - head
+               && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+
+        const a = before.slice(head, before.length - tail);
+        const b = after.slice(head, after.length - tail);
+
+        const lcs = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+        for (let i = a.length - 1; i >= 0; i--) {
+            for (let j = b.length - 1; j >= 0; j--) {
+                lcs[i][j] = a[i] === b[j]
+                    ? lcs[i + 1][j + 1] + 1
+                    : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+            }
+        }
+
+        const rows = [];
+        for (let k = 0; k < head; k++) rows.push({ op: ' ', text: before[k], noBefore: k + 1, noAfter: k + 1 });
+        let i = 0, j = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] === b[j]) {
+                rows.push({ op: ' ', text: a[i], noBefore: head + i + 1, noAfter: head + j + 1 });
+                i++; j++;
+            } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+                rows.push({ op: '-', text: a[i], noBefore: head + i + 1, noAfter: null });
+                i++;
+            } else {
+                rows.push({ op: '+', text: b[j], noBefore: null, noAfter: head + j + 1 });
+                j++;
+            }
+        }
+        while (i < a.length) { rows.push({ op: '-', text: a[i], noBefore: head + i + 1, noAfter: null }); i++; }
+        while (j < b.length) { rows.push({ op: '+', text: b[j], noBefore: null, noAfter: head + j + 1 }); j++; }
+        for (let k = 0; k < tail; k++) {
+            const bi = before.length - tail + k, ai = after.length - tail + k;
+            rows.push({ op: ' ', text: before[bi], noBefore: bi + 1, noAfter: ai + 1 });
+        }
+        return rows;
+    }
+
+    // Неизменённые куски длиннее 2·CONTEXT строк сворачиваем: иначе diff
+    // по файлу на 500 строк невозможно просмотреть глазами.
+    const DIFF_CONTEXT = 3;
+    function collapseUnchanged(rows) {
+        const keep = new Array(rows.length).fill(false);
+        rows.forEach((row, idx) => {
+            if (row.op === ' ') return;
+            for (let k = idx - DIFF_CONTEXT; k <= idx + DIFF_CONTEXT; k++) {
+                if (k >= 0 && k < rows.length) keep[k] = true;
+            }
+        });
+        const out = [];
+        let hidden = 0;
+        rows.forEach((row, idx) => {
+            if (keep[idx]) {
+                if (hidden) { out.push({ op: 'skip', count: hidden }); hidden = 0; }
+                out.push(row);
+            } else {
+                hidden++;
+            }
+        });
+        if (hidden) out.push({ op: 'skip', count: hidden });
+        return out;
+    }
+
+    function renderDiff(before, after) {
+        const rows = collapseUnchanged(diffLines(before, after));
+        const added = rows.filter(r => r.op === '+').length;
+        const removed = rows.filter(r => r.op === '-').length;
+
+        let html = `<p class="preview__lede">Строк добавлено: <b>${added}</b>, удалено: <b>${removed}</b>. `
+            + 'Содержание не трогается — меняется только оформление.</p>'
+            + '<div class="diff"><div class="diff__line diff__line--head">'
+            + '<span class="diff__no">было</span><span class="diff__no">стало</span>'
+            + '<span class="diff__sign"></span><span class="diff__text"></span></div>';
+        rows.forEach(row => {
+            if (row.op === 'skip') {
+                html += `<div class="diff__line diff__line--skip">⋯ пропущено строк без изменений: ${row.count}</div>`;
+                return;
+            }
+            const cls = row.op === '+' ? ' diff__line--add' : row.op === '-' ? ' diff__line--del' : '';
+            // Две колонки номеров: слева строка исходника, справа — результата.
+            // В одной колонке номера «до» и «после» чередовались бы и путали.
+            html += `<div class="diff__line${cls}">`
+                + `<span class="diff__no">${row.noBefore || ''}</span>`
+                + `<span class="diff__no">${row.noAfter || ''}</span>`
+                + `<span class="diff__sign">${row.op === ' ' ? '' : row.op}</span>`
+                + `<span class="diff__text">${esc(row.text)}</span></div>`;
+        });
+        return html + '</div>';
+    }
+
+    function renderDocxPreview(data) {
+        const before = data.before_issues, after = data.after_issues;
+        const bs = data.before_summary || {}, as = data.after_summary || {};
+        const labels = { high: 'Критичных', medium: 'Замечаний', low: 'Мелочей' };
+        let rows = '';
+        ['high', 'medium', 'low'].forEach(key => {
+            rows += `<span>${labels[key]}</span><b>${bs[key] || 0}</b><b>→ ${as[key] || 0}</b>`;
+        });
+        return '<p class="preview__lede">Для .docx построчный diff невозможен — это архив с разметкой, '
+            + 'а не текст. Поэтому показываем результат: сколько замечаний снимет исправление. '
+            + 'Текст, титульный лист и структура документа не меняются.</p>'
+            + '<div class="preview__counts">'
+            + `<div class="preview__col"><div class="preview__col-t">Сейчас</div><div class="preview__col-v">${before}</div></div>`
+            + '<div class="preview__arrow">→</div>'
+            + `<div class="preview__col preview__col--after"><div class="preview__col-t">После исправления</div><div class="preview__col-v">${after}</div></div>`
+            + '</div>'
+            + `<div class="preview__rows">${rows}</div>`;
+    }
+
+    function openPreview(html, canApply) {
+        previewBody.innerHTML = html;
+        previewApply.hidden = !canApply;
+        previewModal.hidden = false;
+    }
+    const closePreview = () => { previewModal.hidden = true; };
+    previewClose.addEventListener('click', closePreview);
+    previewCancel.addEventListener('click', closePreview);
+    previewModal.addEventListener('click', e => { if (e.target === previewModal) closePreview(); });
+    previewApply.addEventListener('click', () => { closePreview(); runAutofix(); });
+
+    previewButton.addEventListener('click', async () => {
+        if (!currentFile) return;
+        previewButton.disabled = true;
+        const orig = previewButton.innerHTML;
+        previewButton.textContent = 'Считаем…';
+        try {
+            const fd = new FormData(); fd.append('file', currentFile);
+            const ext = extOf(currentFile.name);
+            if (ext === '.docx') fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
+            const r = await fetch('/api/autofix-preview', { method: 'POST', body: fd });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `Ошибка ${r.status}`); }
+            const data = await r.json();
+            if (!data.changed) {
+                openPreview('<div class="preview__none">✓ Автоисправление ничего не изменит — '
+                    + 'по тем правилам, которые оно умеет чинить, файл уже в порядке. '
+                    + 'Оставшиеся замечания нужно править вручную.</div>', false);
+                return;
+            }
+            openPreview(data.file_type === 'docx'
+                ? renderDocxPreview(data)
+                : renderDiff(data.original.split('\n'), data.fixed.split('\n')), true);
+        } catch (err) {
+            alert('Не удалось получить предпросмотр: ' + err.message);
+        }
+        finally { previewButton.disabled = false; previewButton.innerHTML = orig; }
     });
 
     // ─── PDF ───
@@ -524,6 +690,7 @@
         sevBarLow.style.width = (data.summary.low/tot*100)+'%';
 
         autofixButton.disabled = true;
+        updatePreviewButton();
         pdfButton.disabled = true;
         reportBody.innerHTML = '';
 
@@ -610,6 +777,13 @@
         autofixButton.title = '';
     }
 
+    // Предпросмотр показывает результат автоисправления, поэтому доступен
+    // ровно там же, где доступно само автоисправление.
+    function updatePreviewButton() {
+        previewButton.disabled = autofixButton.disabled;
+        previewButton.title = autofixButton.title;
+    }
+
     function showLoading(fn) { uploadIdle.hidden = true; uploadLoading.hidden = false; loadingFilename.textContent = fn; setReportVisible(false); }
     function hideLoading() { uploadIdle.hidden = false; uploadLoading.hidden = true; }
 
@@ -647,11 +821,13 @@
 
         reportBody.innerHTML = '';
         updateAutofixButton(report);
+        updatePreviewButton();
         pdfButton.disabled = !!report.error;
         if (report.error) { reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`; sourceViewer.hidden = true; return; }
         if (!report.issues.length) {
             reportBody.innerHTML = '<div class="empty-state"><div class="empty-state__icon">✓</div><div class="empty-state__title">Замечаний не найдено</div><div class="empty-state__text">Файл соответствует всем проверяемым требованиям.</div></div>';
             autofixButton.disabled = true;
+            updatePreviewButton();
             // Still show source code without errors if available
             if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
                 renderSourceViewer(report);
@@ -981,7 +1157,7 @@
         resetVerdict();
         sevBarHigh.style.width='0%'; sevBarMedium.style.width='0%'; sevBarLow.style.width='0%';
         reportBody.innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
-        autofixButton.disabled = true; pdfButton.disabled = true;
+        autofixButton.disabled = true; updatePreviewButton(); pdfButton.disabled = true;
     }
 
     // ─── History ───

@@ -143,6 +143,7 @@
                     </div>
                     <div class="vcard__actions">
                         <button type="button" class="btn" id="autofix-button">Исправить и скачать</button>
+                        <button type="button" class="btn btn--ghost" id="preview-button">Что изменится?</button>
                         <button type="button" class="btn btn--ghost" id="pdf-button">Отчёт PDF</button>
                     </div>
                 </div>
@@ -183,7 +184,7 @@
     </section>
 
     <section class="trust">
-        <p>Правила сверены с <b>работой, принятой кафедрой ИТиК без единого замечания</b>. Ядро проверки покрыто 345 автотестами, 34 правила оформления ФЦТиК АГУ.</p>
+        <p>Правила сверены с <b>работой, принятой кафедрой ИТиК без единого замечания</b>. Ядро проверки покрыто 358 автотестами, 34 правила оформления ФЦТиК АГУ.</p>
         <a class="btn btn--soft" href="/rules" target="_blank" rel="noopener" id="rules-doc-link">Список правил</a>
     </section>
 
@@ -265,6 +266,20 @@
 </div>
 
 <!-- Первый визит -->
+<div class="modal-overlay" id="preview-modal" hidden>
+    <div class="modal modal--wide">
+        <div class="modal__head">
+            <h2>Что изменится после исправления</h2>
+            <button type="button" class="modal__close" id="preview-close" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="modal__body" id="preview-body"></div>
+        <div class="modal__foot modal__foot--r">
+            <button type="button" class="btn btn--ghost btn--sm" id="preview-cancel">Закрыть</button>
+            <button type="button" class="btn btn--sm" id="preview-apply">Исправить и скачать</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="onboarding-modal" hidden>
     <div class="modal modal--sm">
         <div class="modal__head">
