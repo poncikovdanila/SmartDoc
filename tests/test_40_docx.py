@@ -28,11 +28,11 @@ def _make_doc(tmp_path: Path, filename: str = "test.docx", **kwargs) -> Path:
     doc = Document()
     sec = doc.sections[0]
 
-    margins = kwargs.get("margins", {"left": 3.0, "right": 1.5, "top": 2.0, "bottom": 2.0})
-    sec.left_margin = Cm(margins.get("left", 3.0))
-    sec.right_margin = Cm(margins.get("right", 1.5))
-    sec.top_margin = Cm(margins.get("top", 2.0))
-    sec.bottom_margin = Cm(margins.get("bottom", 2.0))
+    margins = kwargs.get("margins", {"left": 3.5, "right": 1.0, "top": 2.5, "bottom": 2.5})
+    sec.left_margin = Cm(margins.get("left", 3.5))
+    sec.right_margin = Cm(margins.get("right", 1.0))
+    sec.top_margin = Cm(margins.get("top", 2.5))
+    sec.bottom_margin = Cm(margins.get("bottom", 2.5))
 
     normal = doc.styles["Normal"]
     normal.font.name = kwargs.get("font_name", "Times New Roman")
@@ -205,7 +205,7 @@ class TestMarginErrors:
         assert len(margin_iss) > 0
 
     def test_all_margins_wrong(self, tmp_path):
-        path = _make_doc(tmp_path, margins={"left": 1.0, "right": 1.0, "top": 1.0, "bottom": 1.0})
+        path = _make_doc(tmp_path, margins={"left": 2.0, "right": 2.0, "top": 1.0, "bottom": 1.0})
         r = _check(path)
         margin_iss = [i for i in r["issues"] if i["code"] == "MARGIN_MISMATCH"]
         assert len(margin_iss) == 4
@@ -251,18 +251,18 @@ class TestDocxAutofix:
         path = _make_doc(tmp_path, font_name="Arial")
         fixed = autofix_docx(path)
         doc = Document(io.BytesIO(fixed))
+        from app.checkers.docx_checker import _resolve_font_name
         for p in doc.paragraphs:
-            for run in p.runs:
-                if run.text.strip():
-                    assert run.font.name == "Times New Roman"
+            if p.text.strip():
+                assert _resolve_font_name(p, doc) == "Times New Roman"
 
     def test_fixes_margins(self, tmp_path):
-        path = _make_doc(tmp_path, margins={"left": 2.0, "right": 2.0, "top": 2.5, "bottom": 2.5})
+        path = _make_doc(tmp_path, margins={"left": 2.0, "right": 2.0, "top": 1.5, "bottom": 1.5})
         fixed = autofix_docx(path)
         doc = Document(io.BytesIO(fixed))
         sec = doc.sections[0]
-        assert abs(sec.left_margin.cm - 3.0) < 0.1
-        assert abs(sec.right_margin.cm - 1.5) < 0.1
+        assert abs(sec.left_margin.cm - 3.5) < 0.1
+        assert abs(sec.right_margin.cm - 1.0) < 0.1
 
     def test_fixes_font_size(self, tmp_path):
         path = _make_doc(tmp_path, font_size=10)
@@ -285,10 +285,10 @@ class TestDocxAutofix:
         custom = {"font_name": "Arial", "font_size_pt": 12}
         fixed = autofix_docx(path, custom)
         doc = Document(io.BytesIO(fixed))
+        from app.checkers.docx_checker import _resolve_font_name
         for p in doc.paragraphs:
-            for run in p.runs:
-                if run.text.strip():
-                    assert run.font.name == "Arial"
+            if p.text.strip():
+                assert _resolve_font_name(p, doc) == "Arial"
 
     def test_autofix_returns_valid_docx(self, tmp_path):
         path = _make_doc(tmp_path, font_name="Arial")

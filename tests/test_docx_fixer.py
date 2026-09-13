@@ -7,7 +7,12 @@ from docx import Document
 from docx.shared import Cm, Pt
 
 from app.checkers.docx_fixer import autofix_docx
-from app.checkers.docx_checker import check_docx_document
+from app.checkers.docx_checker import (
+    ACCEPTED_FONT_SIZES,
+    check_docx_document,
+    _resolve_font_name,
+    _resolve_font_size_pt,
+)
 
 
 def _make_bad_doc(path: Path) -> None:
@@ -39,16 +44,16 @@ def test_autofix_returns_bytes(tmp_path):
 
 
 def test_autofix_fixes_margins(tmp_path):
-    """После autofix поля должны быть 3/1.5/2/2."""
+    """После autofix поля должны быть 3.5/1/2.5/2.5."""
     path = tmp_path / "bad.docx"
     _make_bad_doc(path)
     result = autofix_docx(path)
     doc = Document(io.BytesIO(result))
     section = doc.sections[0]
-    assert abs(section.left_margin.cm - 3.0) < 0.1
-    assert abs(section.right_margin.cm - 1.5) < 0.1
-    assert abs(section.top_margin.cm - 2.0) < 0.1
-    assert abs(section.bottom_margin.cm - 2.0) < 0.1
+    assert abs(section.left_margin.cm - 3.5) < 0.1
+    assert abs(section.right_margin.cm - 1.0) < 0.1
+    assert abs(section.top_margin.cm - 2.5) < 0.1
+    assert abs(section.bottom_margin.cm - 2.5) < 0.1
 
 
 def test_autofix_fixes_font(tmp_path):
@@ -57,11 +62,12 @@ def test_autofix_fixes_font(tmp_path):
     _make_bad_doc(path)
     result = autofix_docx(path)
     doc = Document(io.BytesIO(result))
+    # Шрифт задаётся через стиль Normal, на run — только если run явно
+    # переопределяет его. Проверяем итоговое (разрешённое) значение, как Word.
     for paragraph in doc.paragraphs:
         if paragraph.text.strip():
-            for run in paragraph.runs:
-                assert run.font.name == "Times New Roman"
-                assert abs(run.font.size.pt - 14.0) < 0.5
+            assert _resolve_font_name(paragraph, doc) == "Times New Roman"
+            assert _resolve_font_size_pt(paragraph, doc) in ACCEPTED_FONT_SIZES
 
 
 def test_autofix_reduces_issues(tmp_path):

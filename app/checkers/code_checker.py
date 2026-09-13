@@ -181,11 +181,22 @@ def check_python_code(file_path: Path, original_filename: str) -> dict[str, Any]
     except OSError:
         source_lines = []
 
+    # Вердикт
+    # good — замечаний нет; ok — без критичных или одно критичное (одно поле
+    # в разделе приложений не должно «валить» работу целиком); bad — иначе
+    if not issues:
+        verdict = "good"
+    elif summary["high"] <= 1:
+        verdict = "ok"
+    else:
+        verdict = "bad"
+
     return {
         "filename": original_filename,
         "file_type": "python",
         "total_issues": len(issues),
         "summary": summary,
+        "verdict": verdict,
         "issues": issues,
         "source_lines": source_lines,
     }

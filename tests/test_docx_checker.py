@@ -14,10 +14,10 @@ def _make_compliant_doc(path: Path) -> None:
 
     # Поля страницы
     section = doc.sections[0]
-    section.left_margin = Cm(3.0)
-    section.right_margin = Cm(1.5)
-    section.top_margin = Cm(2.0)
-    section.bottom_margin = Cm(2.0)
+    section.left_margin = Cm(3.5)
+    section.right_margin = Cm(1.0)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
 
     # Стиль Normal
     normal = doc.styles["Normal"]
@@ -45,8 +45,8 @@ def _make_non_compliant_doc(path: Path) -> None:
 
     # Неправильные поля
     section = doc.sections[0]
-    section.left_margin = Cm(2.0)  # должно быть 3
-    section.right_margin = Cm(2.0)  # должно быть 1.5
+    section.left_margin = Cm(2.0)  # должно быть 3.5
+    section.right_margin = Cm(2.0)  # должно быть 1.0
     section.top_margin = Cm(2.5)  # должно быть 2
     section.bottom_margin = Cm(2.5)  # должно быть 2
 
@@ -120,10 +120,10 @@ def test_paragraphs_checked_count(tmp_path):
     path = tmp_path / "multi.docx"
     doc = Document()
     section = doc.sections[0]
-    section.left_margin = Cm(3.0)
-    section.right_margin = Cm(1.5)
-    section.top_margin = Cm(2.0)
-    section.bottom_margin = Cm(2.0)
+    section.left_margin = Cm(3.5)
+    section.right_margin = Cm(1.0)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
     doc.styles["Normal"].font.name = "Times New Roman"
     doc.styles["Normal"].font.size = Pt(14)
 

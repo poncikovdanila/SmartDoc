@@ -25,10 +25,10 @@ from docx.shared import RGBColor, Pt
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# Регулярки специально допускают как длинное тире (—), так и обычный дефис (-)
-# и короткое тире (–), чтобы потом сообщить пользователю, что нужно именно «—».
-TABLE_CAPTION_RE = re.compile(r"^Таблица\s+(\d+)\s*([—–-])\s*(.+)", re.IGNORECASE)
-FIGURE_CAPTION_RE = re.compile(r"^Рисунок\s+(\d+)\s*([—–-])\s*(.+)", re.IGNORECASE)
+# Регулярки допускают секционную нумерацию (1.1, 2.3) и все виды тире.
+TABLE_CAPTION_RE = re.compile(r"^Таблица\s+(\d+(?:\.\d+)*)\s*([—–\-])\s*(.+)", re.IGNORECASE)
+TABLE_CONTINUATION_RE = re.compile(r"^(Продолжение|Окончание)\s+таблицы\s+(\d+(?:\.\d+)*)", re.IGNORECASE)
+FIGURE_CAPTION_RE = re.compile(r"^Рисунок\s+(\d+(?:\.\d+)*)\s*([—–\-])\s*(.+)", re.IGNORECASE)
 
 # Заголовки раздела «Список литературы» — разные варианты, как пишут студенты.
 BIBLIOGRAPHY_HEADERS = (
@@ -38,6 +38,7 @@ BIBLIOGRAPHY_HEADERS = (
 )
 
 # Источник в библиографии должен начинаться с «1.», «2.», ... либо «1)».
+SPACE_BEFORE_PUNCT_RE = re.compile(r" +(?:[,;!?]|\.(?=\s|$))")
 BIB_ENTRY_RE = re.compile(r"^\s*\d+\s*[.)]\s+\S")
 
 
@@ -88,6 +89,11 @@ def check_table_captions(document: DocxDocument) -> list[dict[str, Any]]:
             continue
 
         match = TABLE_CAPTION_RE.match(prev_paragraph_text)
+        if not match and TABLE_CONTINUATION_RE.match(prev_paragraph_text):
+            # «Продолжение таблицы N» — разрыв таблицы на новую страницу, это
+            # не новая таблица: номер не увеличивается, формат не проверяется
+            expected_number -= 1
+            continue
         if not match:
             issues.append(
                 {
@@ -97,45 +103,29 @@ def check_table_captions(document: DocxDocument) -> list[dict[str, Any]]:
                         "Подпись таблицы не соответствует формату «Таблица N — Название»"
                     ),
                     "description": (
-                        "По ГОСТ 2.105 подпись таблицы оформляется как "
-                        "«Таблица N — Название» (длинное тире, не дефис)"
+                        "Подпись таблицы оформляется как "
+                        "«Таблица N — Название» (тире, не дефис)"
                     ),
                     "severity": "medium",
-                    "expected": f"Таблица {expected_number} — Название",
+                    "expected": f"Таблица N — Название",
                     "actual": prev_paragraph_text[:80],
                 }
             )
             continue
 
-        actual_number = int(match.group(1))
         dash = match.group(2)
-        if actual_number != expected_number:
-            issues.append(
-                {
-                    "location": f"Таблица №{table_index}: подпись",
-                    "code": "TABLE_NUMBER_MISMATCH",
-                    "message": (
-                        f"Номер таблицы в подписи ({actual_number}) "
-                        f"не совпадает с порядком ({expected_number})"
-                    ),
-                    "description": "Таблицы нумеруются сквозно по порядку появления",
-                    "severity": "medium",
-                    "expected": f"Таблица {expected_number}",
-                    "actual": f"Таблица {actual_number}",
-                }
-            )
-        if dash != "—":
+        # Дефис — ошибка, тире (длинное или короткое) — допустимо
+        if dash == "-":
             issues.append(
                 {
                     "location": f"Таблица №{table_index}: подпись",
                     "code": "TABLE_DASH_WRONG",
-                    "message": "В подписи используется не длинное тире «—»",
+                    "message": "В подписи используется дефис вместо тире",
                     "description": (
-                        "Между номером и названием ставится длинное тире «—» "
-                        "(символ U+2014), а не дефис «-» или короткое тире «–»"
+                        "Между номером и названием ставится тире «—» или «–», не дефис"
                     ),
                     "severity": "low",
-                    "expected": "—",
+                    "expected": "— или –",
                     "actual": dash,
                 }
             )
@@ -171,8 +161,8 @@ def check_figure_captions(document: DocxDocument) -> list[dict[str, Any]]:
                         "Подпись рисунка не соответствует формату «Рисунок N — Название»"
                     ),
                     "description": (
-                        "По ГОСТ подпись рисунка оформляется как "
-                        "«Рисунок N — Название» (длинное тире, не дефис; "
+                        "Подпись рисунка оформляется как "
+                        "«Рисунок N — Название» (тире, не дефис; "
                         "слово «Рисунок» полностью, не «Рис.»)"
                     ),
                     "severity": "medium",
@@ -181,35 +171,19 @@ def check_figure_captions(document: DocxDocument) -> list[dict[str, Any]]:
                 }
             )
             continue
-        expected_number = figure_caption_count
-        actual_number = int(match.group(1))
         dash = match.group(2)
-        if actual_number != expected_number:
-            issues.append(
-                {
-                    "location": f"Рисунок №{figure_caption_count}: подпись",
-                    "code": "FIGURE_NUMBER_MISMATCH",
-                    "message": (
-                        f"Номер рисунка в подписи ({actual_number}) "
-                        f"не совпадает с порядком ({expected_number})"
-                    ),
-                    "description": "Рисунки нумеруются сквозно по порядку появления",
-                    "severity": "medium",
-                    "expected": f"Рисунок {expected_number}",
-                    "actual": f"Рисунок {actual_number}",
-                }
-            )
-        if dash != "—":
+        # Дефис — ошибка, тире (длинное или короткое) — допустимо
+        if dash == "-":
             issues.append(
                 {
                     "location": f"Рисунок №{figure_caption_count}: подпись",
                     "code": "FIGURE_DASH_WRONG",
-                    "message": "В подписи рисунка используется не длинное тире «—»",
+                    "message": "В подписи рисунка используется дефис вместо тире",
                     "description": (
-                        "Между номером и названием ставится длинное тире «—»"
+                        "Между номером и названием ставится тире «—» или «–», не дефис"
                     ),
                     "severity": "low",
-                    "expected": "—",
+                    "expected": "— или –",
                     "actual": dash,
                 }
             )
@@ -271,7 +245,10 @@ def check_bibliography(document: DocxDocument) -> list[dict[str, Any]]:
             or "приложение" in text.lower()[:15]
         ):
             break
-        if BIB_ENTRY_RE.match(text):
+        ppr = paragraph._element.pPr
+        has_word_numbering = ppr is not None and ppr.find(qn("w:numPr")) is not None
+        if BIB_ENTRY_RE.match(text) or has_word_numbering:
+            # Номер набран вручную «1. …» или задан нумерацией Word — оба варианта норма
             entries_found += 1
         else:
             # Это либо абзац-комментарий, либо просто кривая запись
@@ -316,19 +293,41 @@ def check_bibliography(document: DocxDocument) -> list[dict[str, Any]]:
 
 def _is_heading(paragraph: Paragraph) -> bool:
     name = (paragraph.style.name or "").lower()
-    return "heading" in name or "заголов" in name or "toc" in name
+    if "heading" in name or "заголов" in name or "toc" in name:
+        return True
+    if name.startswith("+") or "раздел" in name:
+        return True
+    return False
 
 
 def check_text_alignment(document: DocxDocument) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     count = 0
-    for paragraph in document.paragraphs:
+
+    # Находим начало основного текста (после титульного листа)
+    body_keywords = {"содержание", "введение", "оглавление"}
+    body_start = 0
+    for i, para in enumerate(document.paragraphs):
+        text = para.text.strip().lower()
+        style_name = (para.style.name or "").lower()
+        if "heading" in style_name or text in body_keywords:
+            body_start = i
+            break
+
+    for i, paragraph in enumerate(document.paragraphs):
+        if i < body_start:
+            continue
         text = paragraph.text.strip()
         if not text or len(text) < 20:
             continue
         if _is_heading(paragraph):
             continue
+        style_name = (paragraph.style.name or "").lower()
+        if style_name == "title":
+            continue
         if TABLE_CAPTION_RE.match(text) or re.match(r"^Рис", text, re.IGNORECASE):
+            continue
+        if TABLE_CONTINUATION_RE.match(text):
             continue
         alignment = paragraph.alignment
         if alignment is not None and alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
@@ -367,7 +366,17 @@ def check_extra_blank_lines(document: DocxDocument) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     consecutive_empty = 0
     reported = 0
-    for paragraph in document.paragraphs:
+    # Титульный лист верстается пустыми строками — это норма, не проверяем
+    from app.checkers.docx_checker import _find_body_start
+    body_start = _find_body_start(document)
+    for idx, paragraph in enumerate(document.paragraphs):
+        if idx < body_start:
+            continue
+        xml = paragraph._element.xml
+        if "w:sectPr" in xml or 'w:type="page"' in xml or "w:pageBreakBefore" in xml:
+            # Разрыв страницы/раздела — не «пустая строка»
+            consecutive_empty = 0
+            continue
         if not paragraph.text.strip():
             consecutive_empty += 1
         else:
@@ -393,6 +402,9 @@ def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
     for paragraph in document.paragraphs:
         if not _is_heading(paragraph):
             continue
+        # Оглавление (стили toc N) — не заголовки, оно не должно быть жирным
+        if "toc" in (paragraph.style.name or "").lower():
+            continue
         text = paragraph.text.strip()
         if not text:
             continue
@@ -405,16 +417,36 @@ def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
                 "severity": "medium",
                 "expected": "без точки", "actual": text[-10:],
             })
-        has_non_bold = any(run.text.strip() and not run.bold for run in paragraph.runs)
-        if has_non_bold:
-            issues.append({
-                "location": f"Заголовок: «{text[:60]}»",
-                "code": "HEADING_NOT_BOLD",
-                "message": "Заголовок не выделен жирным",
-                "description": "Заголовки оформляются полужирным начертанием",
-                "severity": "medium",
-                "expected": "полужирный", "actual": "обычный",
-            })
+        # Проверяем жирность: стиль + ран-уровень
+        # Если стиль жирный и раны НЕ переопределяют — ОК
+        # Если ран явно выставляет bold=False — это ошибка
+        style_bold = False
+        s = paragraph.style
+        while s:
+            if s.font.bold:
+                style_bold = True
+                break
+            s = s.base_style
+        has_explicit_non_bold = any(
+            run.text.strip() and run.bold is False
+            for run in paragraph.runs
+        )
+        has_non_bold_runs = any(
+            run.text.strip() and not run.bold
+            for run in paragraph.runs
+        )
+        is_bold = style_bold and not has_explicit_non_bold or (
+            not style_bold and not has_non_bold_runs
+        )
+        if not is_bold and paragraph.runs:
+                issues.append({
+                    "location": f"Заголовок: «{text[:60]}»",
+                    "code": "HEADING_NOT_BOLD",
+                    "message": "Заголовок не выделен жирным",
+                    "description": "Заголовки оформляются полужирным начертанием",
+                    "severity": "medium",
+                    "expected": "полужирный", "actual": "обычный",
+                })
     return issues
 
 
@@ -509,8 +541,12 @@ def check_table_formatting(document: DocxDocument) -> list[dict[str, Any]]:
 
 def check_extra_spaces(document: DocxDocument) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
-    double_spaces = sum(len(re.findall(r"  +", p.text)) for p in document.paragraphs if p.text.strip())
-    space_punct = sum(len(re.findall(r" +[,;.!?]", p.text)) for p in document.paragraphs if p.text.strip())
+    # Заголовки и оглавление не считаем: там несколько пробелов после номера
+    # («1.1   Название») — намеренная вёрстка под табуляцию
+    body = [p for p in document.paragraphs if p.text.strip() and not _is_heading(p)]
+    double_spaces = sum(len(re.findall(r"  +", p.text)) for p in body)
+    # Точка перед расширением файла («формата .txt») — не пунктуация
+    space_punct = sum(len(SPACE_BEFORE_PUNCT_RE.findall(p.text)) for p in body)
     if double_spaces > 0:
         issues.append({
             "location": "Документ в целом",
@@ -558,4 +594,314 @@ def check_table_of_contents(document: DocxDocument) -> list[dict[str, Any]]:
             "severity": "low",
             "expected": "раздел «Содержание»", "actual": "не найдено",
         })
+    return issues
+
+
+# ═══════ 13. Интервалы до/после абзаца ═══════
+
+def check_paragraph_spacing(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет, что основной текст не имеет лишних интервалов Before/After."""
+    issues: list[dict[str, Any]] = []
+    count = 0
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text or len(text) < 15:
+            continue
+        if _is_heading(paragraph):
+            continue
+        style_name = (paragraph.style.name or "").lower()
+        if "title" in style_name or "toc" in style_name or "caption" in style_name:
+            continue
+        pf = paragraph.paragraph_format
+        # Проверяем space_before и space_after
+        before = pf.space_before
+        after = pf.space_after
+        # Допускаем None (наследование) и 0; флагим если > 6pt (0.5 строки)
+        threshold = 76200  # 6pt в EMU
+        if before is not None and before > threshold:
+            count += 1
+            if count <= 5:
+                preview = text[:40] + "…" if len(text) > 40 else text
+                issues.append({
+                    "location": f"Абзац: «{preview}»",
+                    "code": "PARA_SPACING_BEFORE",
+                    "message": f"Интервал перед абзацем: {before / 12700:.0f} пт",
+                    "description": "Основной текст не должен иметь дополнительного интервала перед абзацем",
+                    "severity": "medium",
+                    "expected": "0 пт", "actual": f"{before / 12700:.0f} пт",
+                })
+        if after is not None and after > threshold:
+            count += 1
+            if count <= 5:
+                preview = text[:40] + "…" if len(text) > 40 else text
+                issues.append({
+                    "location": f"Абзац: «{preview}»",
+                    "code": "PARA_SPACING_AFTER",
+                    "message": f"Интервал после абзаца: {after / 12700:.0f} пт",
+                    "description": "Основной текст не должен иметь дополнительного интервала после абзаца",
+                    "severity": "medium",
+                    "expected": "0 пт", "actual": f"{after / 12700:.0f} пт",
+                })
+    if count > 5:
+        issues.append({
+            "location": "Документ в целом",
+            "code": "PARA_SPACING_BEFORE",
+            "message": f"Ещё {count - 5} абзацев с лишними интервалами",
+            "description": "Интервалы Before/After вместо межстрочного интервала",
+            "severity": "medium",
+            "expected": "0 пт", "actual": f"{count} абзацев",
+        })
+    return issues
+
+
+# ═══════ 14. Нумерация разделов ═══════
+
+SECTION_NUM_RE = re.compile(r"^(\d+(?:\.\d+)*)\s+")
+
+def check_heading_numbering(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет последовательность нумерации заголовков."""
+    issues: list[dict[str, Any]] = []
+    numbers_seen: list[str] = []
+
+    for paragraph in document.paragraphs:
+        if not _is_heading(paragraph):
+            continue
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        m = SECTION_NUM_RE.match(text)
+        if not m:
+            continue
+        num = m.group(1)
+        numbers_seen.append(num)
+
+    # Проверяем последовательность
+    prev_parts = []
+    for num in numbers_seen:
+        parts = [int(x) for x in num.split(".")]
+        if prev_parts:
+            # Проверяем, нет ли пропуска
+            if len(parts) == 1:
+                expected = prev_parts[0] + 1 if len(prev_parts) == 1 else prev_parts[0] + 1
+                if parts[0] > expected:
+                    issues.append({
+                        "location": f"Заголовок «{num} ...»",
+                        "code": "HEADING_NUM_GAP",
+                        "message": f"Пропуск в нумерации разделов: после {'.'.join(str(x) for x in prev_parts)} идёт {num}",
+                        "description": "Нумерация разделов должна быть последовательной",
+                        "severity": "medium",
+                        "expected": f"{expected}", "actual": num,
+                    })
+        prev_parts = parts
+
+    return issues
+
+
+# ═══════ 15. Иерархия заголовков ═══════
+
+def check_heading_hierarchy(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет, что нет перескоков уровней (например, Heading 1 → Heading 3)."""
+    issues: list[dict[str, Any]] = []
+    prev_level = 0
+
+    for paragraph in document.paragraphs:
+        style_name = paragraph.style.name or ""
+        text = paragraph.text.strip()
+        if not text:
+            continue
+
+        level = 0
+        if style_name.startswith("Heading "):
+            try:
+                level = int(style_name.split()[-1])
+            except ValueError:
+                continue
+        elif "раздел" in style_name.lower() and "под" not in style_name.lower():
+            level = 1
+        elif "подраздел" in style_name.lower():
+            level = 2
+        else:
+            continue
+
+        if prev_level > 0 and level > prev_level + 1:
+            issues.append({
+                "location": f"Заголовок: «{text[:50]}»",
+                "code": "HEADING_LEVEL_SKIP",
+                "message": f"Перескок уровня заголовка: с {prev_level} на {level}",
+                "description": "Нельзя перескакивать уровни заголовков (например, с раздела сразу на пункт)",
+                "severity": "medium",
+                "expected": f"уровень {prev_level + 1}", "actual": f"уровень {level}",
+            })
+        prev_level = level
+
+    return issues
+
+
+# ═══════ 16. Ссылки на рисунки и таблицы в тексте ═══════
+
+def check_cross_references(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет, что каждый рисунок и таблица упомянуты в тексте."""
+    issues: list[dict[str, Any]] = []
+
+    # Собираем все подписи и обычный текст отдельно
+    figures = []
+    tables = []
+    body_text_parts = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+
+        fig_m = re.match(r"^Рисунок\s+(\d+(?:\.\d+)*)", text, re.IGNORECASE)
+        if fig_m:
+            figures.append(fig_m.group(1))
+            continue
+        tbl_m = re.match(r"^Таблица\s+(\d+(?:\.\d+)*)", text, re.IGNORECASE)
+        if tbl_m:
+            tables.append(tbl_m.group(1))
+            continue
+        # Только обычный текст (не подписи) для поиска ссылок
+        body_text_parts.append(text)
+
+    body_text = " ".join(body_text_parts).lower()
+
+    # Проверяем ссылки на рисунки
+    for num in figures:
+        patterns = [
+            f"рисунок {num}",
+            f"рисунке {num}",
+            f"рисунка {num}",
+            f"рисунку {num}",
+            f"рисунком {num}",
+            f"рис. {num}",
+            f"(рис. {num}",
+        ]
+        found = any(p in body_text for p in patterns)
+        if not found:
+            issues.append({
+                "location": f"Рисунок {num}",
+                "code": "FIGURE_NO_REFERENCE",
+                "message": f"Рисунок {num} не упоминается в тексте",
+                "description": "Каждый рисунок должен быть упомянут в тексте до его появления",
+                "severity": "medium",
+                "expected": f"ссылка на рисунок {num}", "actual": "не найдена",
+            })
+
+    # Проверяем ссылки на таблицы
+    for num in tables:
+        patterns = [
+            f"таблица {num}",
+            f"таблице {num}",
+            f"таблицы {num}",
+            f"таблицу {num}",
+            f"таблицей {num}",
+            f"табл. {num}",
+            f"(табл. {num}",
+        ]
+        found = any(p in body_text for p in patterns)
+        if not found:
+            issues.append({
+                "location": f"Таблица {num}",
+                "code": "TABLE_NO_REFERENCE",
+                "message": f"Таблица {num} не упоминается в тексте",
+                "description": "Каждая таблица должна быть упомянута в тексте",
+                "severity": "medium",
+                "expected": f"ссылка на таблицу {num}", "actual": "не найдена",
+            })
+
+    return issues
+
+
+# ═══════ 17. Формат приложений ═══════
+
+def check_appendix_format(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет формат заголовков приложений: ПРИЛОЖЕНИЕ А, ПРИЛОЖЕНИЕ Б, ..."""
+    issues: list[dict[str, Any]] = []
+    appendix_re = re.compile(r"^ПРИЛОЖЕНИЕ\s+([А-Я])", re.IGNORECASE)
+    expected_letters = "АБВГДЕЖИКЛМНОПРСТУФХЦЧШЩЭЮЯ"
+    found_letters = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        style_name = (paragraph.style.name or "").lower()
+        # Пропускаем оглавление и обычные абзацы — только заголовки
+        if "toc" in style_name:
+            continue
+        if not ("heading" in style_name or style_name.startswith("+")):
+            continue
+        m = appendix_re.match(text)
+        if not m:
+            continue
+        letter = m.group(1).upper()
+        found_letters.append(letter)
+
+        # Проверяем, что приложение оформлено заглавными
+        if not text.startswith("ПРИЛОЖЕНИЕ"):
+            issues.append({
+                "location": f"Приложение {letter}",
+                "code": "APPENDIX_FORMAT",
+                "message": "Слово «ПРИЛОЖЕНИЕ» должно быть заглавными буквами",
+                "description": "Формат: «ПРИЛОЖЕНИЕ А — Название»",
+                "severity": "medium",
+                "expected": "ПРИЛОЖЕНИЕ", "actual": text[:20],
+            })
+
+    # Проверяем последовательность букв
+    for i, letter in enumerate(found_letters):
+        expected = expected_letters[i] if i < len(expected_letters) else "?"
+        if letter != expected:
+            issues.append({
+                "location": f"Приложение {letter}",
+                "code": "APPENDIX_ORDER",
+                "message": f"Нарушена последовательность приложений: ожидалось {expected}, найдено {letter}",
+                "description": "Приложения нумеруются буквами русского алфавита по порядку: А, Б, В, ...",
+                "severity": "medium",
+                "expected": expected, "actual": letter,
+            })
+            break
+
+    return issues
+
+
+# ═══════ 18. Формат библиографических записей ═══════
+
+BIB_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+BIB_PAGES_RE = re.compile(r"\d+\s*[сcС]\b\.?|\d+\s*p\b\.?", re.IGNORECASE)
+
+def check_bibliography_format(document: DocxDocument) -> list[dict[str, Any]]:
+    """Проверяет формат отдельных записей в списке литературы."""
+    issues: list[dict[str, Any]] = []
+    in_bib = False
+    entry_count = 0
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        text_lower = text.lower()
+        if any(h in text_lower for h in BIBLIOGRAPHY_HEADERS):
+            in_bib = True
+            continue
+        if in_bib:
+            # Конец библиографии — новый раздел
+            if _is_heading(paragraph) and not any(h in text_lower for h in BIBLIOGRAPHY_HEADERS):
+                break
+            m = BIB_ENTRY_RE.match(text)
+            if not m:
+                continue
+            entry_count += 1
+            # Проверяем наличие года
+            if not BIB_YEAR_RE.search(text):
+                issues.append({
+                    "location": f"Источник №{entry_count}",
+                    "code": "BIB_NO_YEAR",
+                    "message": f"Не найден год издания в записи",
+                    "description": "Каждый источник должен содержать год издания",
+                    "severity": "low",
+                    "expected": "год (19xx или 20xx)", "actual": text[:60],
+                })
+
     return issues

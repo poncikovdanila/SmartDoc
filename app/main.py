@@ -1,4 +1,4 @@
-"""SmartDoc & Code Review v6.
+"""SmartDoc & Code Review v7.
 
 Маршруты:
     GET  /               — главная
@@ -27,6 +27,7 @@ from app.checkers.code_fixer import autofix_python_code
 from app.checkers.docx_checker import check_docx_document, PRESETS
 from app.checkers.docx_fixer import autofix_docx
 from app.pdf_export import generate_pdf_report
+from app.template_generator import generate_template
 
 BASE_DIR = Path(__file__).resolve().parent
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -42,10 +43,20 @@ def _content_disposition(filename: str) -> str:
 app = FastAPI(
     title="SmartDoc & Code Review",
     description="Проверка Python-кода (PEP 8) и документов .docx (ГОСТ/АГУ).",
-    version="6.0.0",
+    version="7.0.0",
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
+@app.get("/rules", include_in_schema=False)
+async def rules_document():
+    """Описание требований нормоконтроля АГУ ФЦТиК (markdown как текст)."""
+    from fastapi.responses import PlainTextResponse
+    path = BASE_DIR.parent / "docs" / "Требования_нормоконтроля_АГУ_ФЦТиК.md"
+    if not path.exists():
+        raise HTTPException(404, "Документ не найден")
+    return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown; charset=utf-8")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
@@ -95,6 +106,72 @@ async def check_file(file: Annotated[UploadFile, File(...)],
             os.remove(tmp)
         except OSError:
             pass
+
+
+@app.post("/api/check-batch")
+async def check_batch(files: Annotated[list[UploadFile], File(...)],
+                      docx_rules: Annotated[str | None, Form()] = None):
+    """Пакетная проверка нескольких файлов."""
+    custom_rules = None
+    if docx_rules:
+        import json as _json
+        try:
+            custom_rules = _json.loads(docx_rules)
+        except (ValueError, TypeError):
+            pass
+
+    reports = []
+    total_issues = 0
+    summary = {"high": 0, "medium": 0, "low": 0}
+
+    for file in files:
+        content = await file.read()
+        try:
+            ext = _validate(file, content)
+        except HTTPException as e:
+            reports.append({
+                "filename": file.filename or "unknown",
+                "file_type": "unknown",
+                "total_issues": 0,
+                "summary": {"high": 0, "medium": 0, "low": 0},
+                "issues": [],
+                "error": e.detail,
+            })
+            continue
+
+        tmp = Path(tempfile.gettempdir()) / f"sd_b_{uuid.uuid4().hex}{ext}"
+        try:
+            tmp.write_bytes(content)
+            if ext == ".py":
+                report = check_python_code(tmp, file.filename or "")
+            else:
+                report = check_docx_document(tmp, file.filename or "", custom_rules)
+            reports.append(report)
+            total_issues += report["total_issues"]
+            for sev in ("high", "medium", "low"):
+                summary[sev] += report["summary"].get(sev, 0)
+        except Exception as e:
+            reports.append({
+                "filename": file.filename or "unknown",
+                "file_type": "unknown",
+                "total_issues": 0,
+                "summary": {"high": 0, "medium": 0, "low": 0},
+                "issues": [],
+                "error": str(e),
+            })
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    return JSONResponse(content={
+        "batch": True,
+        "file_count": len(reports),
+        "total_issues": total_issues,
+        "summary": summary,
+        "reports": reports,
+    })
 
 
 @app.post("/api/autofix-preview")
@@ -230,6 +307,27 @@ async def export_pdf(report: dict):
     )
 
 
+@app.post("/api/generate-template")
+async def api_generate_template(docx_rules: Annotated[str | None, Form()] = None):
+    """Генерирует шаблон .docx по текущим правилам."""
+    custom_rules = None
+    if docx_rules:
+        import json as _json
+        try:
+            custom_rules = _json.loads(docx_rules)
+        except (ValueError, TypeError):
+            pass
+    try:
+        template_bytes = generate_template(custom_rules)
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка генерации шаблона: {e}")
+    return Response(
+        content=template_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": _content_disposition("Шаблон_АГУ.docx")},
+    )
+
+
 @app.get("/api/presets")
 async def get_presets():
     """Возвращает доступные пресеты правил для .docx."""
@@ -238,4 +336,4 @@ async def get_presets():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "SmartDoc & Code Review", "version": "6.0.0"}
+    return {"status": "ok", "service": "SmartDoc & Code Review", "version": "7.0.0"}

@@ -20,10 +20,10 @@ def _make_doc_with_font(path: Path, font_name: str, font_size_pt: float) -> None
     """Создаёт минимальный документ с заданным шрифтом и размером."""
     doc = Document()
     sec = doc.sections[0]
-    sec.left_margin = Cm(3.0)
-    sec.right_margin = Cm(1.5)
-    sec.top_margin = Cm(2.0)
-    sec.bottom_margin = Cm(2.0)
+    sec.left_margin = Cm(3.5)
+    sec.right_margin = Cm(1.0)
+    sec.top_margin = Cm(2.5)
+    sec.bottom_margin = Cm(2.5)
     p = doc.add_paragraph()
     run = p.add_run("Тестовый абзац с определённым шрифтом.")
     run.font.name = font_name
@@ -42,7 +42,7 @@ def test_get_rules_default_returns_agu():
     assert rules["font_size_pt"] == 14.0
     assert rules["line_spacing"] == 1.5
     assert rules["first_line_indent_cm"] == 1.25
-    assert rules["margins_cm"]["left"] == 3.0
+    assert rules["margins_cm"]["left"] == 3.5
 
 
 def test_get_rules_preset_agu():
@@ -65,7 +65,7 @@ def test_get_rules_custom_overrides():
     assert rules["font_size_pt"] == 12.0
     # Незатронутые поля остаются дефолтными
     assert rules["line_spacing"] == 1.5
-    assert rules["margins_cm"]["right"] == 1.5  # не изменено
+    assert rules["margins_cm"]["right"] == 1.0  # не изменено
     assert rules["margins_cm"]["left"] == 2.5   # изменено
 
 

@@ -1,344 +1,276 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="dark">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartDoc & Code Review</title>
+    <title>SmartDoc — нормоконтроль .docx и проверка Python-кода</title>
+    <meta name="description" content="Проверка пояснительной записки .docx по требованиям АГУ (ФЦТиК) и Python-кода по PEP 8. Замечания с точным местом и исправленная копия.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=9.2">
-    <script>
-        (function(){
-            var t = localStorage.getItem('smartdoc-theme');
-            if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', t);
-        })();
-    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=11.0">
 </head>
 <body>
-    <div class="grain"></div>
-    <div class="ambient ambient--1"></div>
-    <div class="ambient ambient--2"></div>
 
-    <header class="masthead">
-        <div class="masthead__row">
-            <div class="masthead__brand">
-                <span class="brand-mark">SD/CR</span>
-                <span class="brand-divider"></span>
-                <span class="brand-meta">v6.0</span>
+<header class="top">
+    <div class="wrap top__row">
+        <a class="logo" href="/" aria-label="SmartDoc"><i class="logo__mark"></i>SmartDoc</a>
+        <nav class="top__nav">
+            <a href="#about">Как это работает</a>
+            <a href="#who">Кому</a>
+            <a href="#history-section">История</a>
+        </nav>
+        <div class="top__sp"></div>
+        <button type="button" class="btn btn--ghost btn--sm" id="template-button">Шаблон записки</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="rules-toggle">
+            Правила
+            <span class="rules-preset" id="rules-preset-label">АГУ</span>
+        </button>
+        <button type="button" class="theme-toggle" id="theme-toggle" hidden aria-hidden="true"></button>
+    </div>
+</header>
+
+<main class="wrap">
+
+    <!-- ══════ Состояние 1: загрузка ══════ -->
+    <section class="hero" id="upload">
+        <div class="hero__text">
+            <h1>Записка без замечаний по оформлению — с первого раза</h1>
+            <p class="hero__lede">Загрузите .docx или .py и получите список замечаний нормоконтроля АГУ (ФЦТиК) или PEP&nbsp;8. Оформление исправится автоматически, содержание останется вашим.</p>
+
+            <div class="drop" id="dropzone">
+                <input type="file" id="file-input" accept=".py,.docx" multiple hidden>
+                <div class="drop__inner" id="upload-idle">
+                    <div class="drop__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
+                    </div>
+                    <div class="drop__title">Перетащите файл сюда</div>
+                    <div class="drop__sub">или <button type="button" class="link" id="browse-button">выберите на компьютере</button> · .docx, .py · до 5 МБ · можно несколько</div>
+                    <button type="button" class="link link--muted" id="paste-toggle">Вставить код из буфера</button>
+                </div>
+                <div class="drop__editor" id="paste-editor" hidden>
+                    <textarea id="paste-textarea" placeholder="Вставьте Python-код сюда…" spellcheck="false"></textarea>
+                    <div class="drop__editor-actions">
+                        <button type="button" class="btn btn--sm" id="paste-check">Проверить</button>
+                        <button type="button" class="btn btn--ghost btn--sm" id="paste-clear">Очистить</button>
+                    </div>
+                </div>
+                <div class="drop__inner" id="upload-loading" hidden>
+                    <div class="spinner" aria-hidden="true"></div>
+                    <div class="drop__title">Проверяем…</div>
+                    <div class="drop__sub" id="loading-filename">file.docx</div>
+                </div>
             </div>
-            <div class="masthead__right">
-                <nav class="masthead__nav">
-                    <a href="#about">О сервисе</a>
-                    <a href="#how">Как работает</a>
-                </nav>
-                <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Переключить тему">
-                    <svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                    </svg>
-                    <svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                    </svg>
-                </button>
-            </div>
+            <p class="hero__note">Файл удаляется сразу после проверки, на сервере ничего не хранится.</p>
         </div>
 
-        <div class="masthead__hero">
-            <p class="eyebrow">Веб-платформа для автоматической проверки</p>
-            <h1 class="display">
-                <span class="display__line">SmartDoc</span>
-                <span class="display__line display__line--sub">
-                    <span class="display__amp">&amp;</span>
-                </span>
-                <span class="display__line display__line--accent">Code Review</span>
-            </h1>
-            <p class="lede">
-                Загрузите Python-скрипт или документ <code>.docx</code> — получите подробный отчёт
-                о нарушениях стандарта <strong>PEP&nbsp;8</strong> и требований нормоконтроля
-                <strong>АГУ&nbsp;(ФЦТиК)</strong>. Автоисправление в один клик. Экспорт в PDF.
-            </p>
-            <div class="badges">
-                <span class="badge badge--stagger-1"><span class="dot dot--green"></span>flake8 + autopep8</span>
-                <span class="badge badge--stagger-2"><span class="dot dot--amber"></span>python-docx</span>
-                <span class="badge badge--stagger-3"><span class="dot dot--blue"></span>FastAPI</span>
+        <div class="scene" aria-hidden="true">
+            <div class="a4">
+                <div class="a4__h">1 ОПИСАНИЕ ПРОГРАММЫ</div>
+                <div class="a4__h2">1.1 Описание предметной области</div>
+                <p>Волонтёрская деятельность в университете охватывает большое количество мероприятий, участников и задач, учёт которых ведётся вручную.</p>
+                <p>Это приводит к потере данных, дублированию информации и невозможности быстро получить отчёт о проделанной работе.</p>
+                <div class="a4__fig"></div>
+                <div class="a4__cap">Рисунок 1.1 – Схема процесса</div>
+                <div class="a4__h2">1.2 Описание технологии обработки</div>
+                <p>Обработка информации в системе строится на реляционной модели данных.</p>
+                <p>Каждое мероприятие связано с участниками и задачами через промежуточные таблицы.</p>
+                <p>Отчёты формируются по запросу пользователя за выбранный период.</p>
+                <div class="a4__mk a4__mk--e"></div>
+                <div class="a4__mk a4__mk--w"></div>
+            </div>
+            <div class="tag tag--1"><i class="dot dot--e"></i><div><b>Заголовок не жирный</b><span>1.1 Описание предметной области</span></div></div>
+            <div class="tag tag--2"><i class="dot dot--w"></i><div><b>Подпись оторвана от рисунка</b><span>Рисунок 1.1, стр. 7</span></div></div>
+            <div class="tag tag--3"><i class="dot dot--w"></i><div><b>Красная строка 1,0 см</b><span>ожидается 1,25 см</span></div></div>
+            <div class="tag tag--4"><i class="dot dot--ok"></i><div><b>Поля и шрифт в норме</b><span>3,5 / 1 / 2,5 / 2,5 см · Times</span></div></div>
+        </div>
+    </section>
+
+    <!-- ══════ Состояние 2: результат ══════ -->
+    <section class="report" id="report-section" hidden>
+        <div class="report__head">
+            <span class="ftype" id="report-type">DOCX</span>
+            <div class="report__file">
+                <h2 id="report-filename"></h2>
+                <p id="report-subtitle"></p>
+            </div>
+            <button type="button" class="btn btn--ghost btn--sm" id="reset-button">Проверить другой файл</button>
+        </div>
+
+        <div class="report__grid">
+            <div class="report__main">
+                <div class="src" id="source-viewer" hidden>
+                    <div class="src__head">
+                        <span>Исходный код</span>
+                        <span class="src__legend"><i class="dot dot--e"></i>критично <i class="dot dot--w"></i>замечание <i class="dot dot--i"></i>незначительно</span>
+                    </div>
+                    <div class="src__minimap" id="source-minimap"></div>
+                    <div class="src__code" id="source-code"></div>
+                </div>
+                <div class="issues" id="report-body"></div>
+            </div>
+
+            <aside class="report__side">
+                <div class="vcard" id="verdict-card">
+                    <div class="vcard__top">
+                        <div class="vcard__ring" id="verdict-icon"></div>
+                        <div>
+                            <div class="vcard__title" id="verdict-title">—</div>
+                            <div class="vcard__sub" id="verdict-sub"></div>
+                        </div>
+                    </div>
+                    <div class="sevbar" id="severity-bar">
+                        <div class="sevbar__seg sevbar__seg--high" id="sev-bar-high"></div>
+                        <div class="sevbar__seg sevbar__seg--medium" id="sev-bar-medium"></div>
+                        <div class="sevbar__seg sevbar__seg--low" id="sev-bar-low"></div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><b id="stat-total">0</b><span>всего</span></div>
+                        <div class="stat stat--high"><b id="stat-high">0</b><span>критично</span></div>
+                        <div class="stat stat--medium"><b id="stat-medium">0</b><span>замечания</span></div>
+                        <div class="stat stat--low"><b id="stat-low">0</b><span>мелочи</span></div>
+                    </div>
+                    <div class="vcard__actions">
+                        <button type="button" class="btn" id="autofix-button">Исправить и скачать</button>
+                        <button type="button" class="btn btn--ghost" id="pdf-button">Отчёт PDF</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <!-- ══════ Вводные блоки ══════ -->
+    <section class="how" id="about">
+        <h2>Как это работает</h2>
+        <p class="how__sub">Три шага, без регистрации. Проверка занимает несколько секунд даже для записки на 60 страниц.</p>
+        <div class="steps">
+            <div class="step"><em>Шаг 1</em><h3>Загрузите документ</h3><p>Файл .docx с курсовой, отчётом по практике или ВКР. Или Python-скрипт для проверки по PEP 8.</p></div>
+            <div class="step"><em>Шаг 2</em><h3>Посмотрите замечания</h3><p>Каждое замечание указывает, где оно найдено, что ожидалось и что есть на самом деле.</p></div>
+            <div class="step"><em>Шаг 3</em><h3>Скачайте исправленную копию</h3><p>Поля, шрифт, интервалы и отступы приведены к требованиям кафедры. Титульный лист и текст не тронуты.</p></div>
+        </div>
+    </section>
+
+    <section class="who" id="who">
+        <div class="who__card">
+            <h3>Студентам</h3>
+            <p>Чтобы не возвращать работу три раза из-за интервалов и подписей к таблицам.</p>
+            <ul>
+                <li>Замечания до того, как их увидит преподаватель</li>
+                <li>Готовый шаблон записки по требованиям кафедры</li>
+                <li>Проверка Python-кода по PEP 8 для приложений</li>
+            </ul>
+        </div>
+        <div class="who__card">
+            <h3>Преподавателям</h3>
+            <p>Чтобы тратить время на содержание работ, а не на поля и кегль.</p>
+            <ul>
+                <li>Пакетная проверка всей группы за минуту</li>
+                <li>Свои правила оформления для кафедры или курса</li>
+                <li>Отчёт по каждой работе в PDF</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="trust">
+        <p>Правила сверены с <b>работой, принятой кафедрой ИТиК без единого замечания</b>. Ядро проверки покрыто 265 автотестами, 34 правила оформления ФЦТиК АГУ.</p>
+        <a class="btn btn--soft" href="/rules" target="_blank" rel="noopener" id="rules-doc-link">Список правил</a>
+    </section>
+
+    <section class="history" id="history-section">
+        <div class="history__head">
+            <h2>История проверок</h2>
+            <button type="button" class="btn btn--ghost btn--sm" id="clear-history-button">Очистить</button>
+        </div>
+        <div class="history__list" id="history-list">
+            <p class="history__empty" id="history-empty">Проверок ещё не было — история хранится только в этом браузере.</p>
+        </div>
+    </section>
+</main>
+
+<footer class="foot">
+    <div class="wrap foot__row">
+        <span>SmartDoc &amp; Code Review · АГУ им. В.&nbsp;Н.&nbsp;Татищева, ФЦТиК · 09.03.02</span>
+        <span>Данила Полстянов · <a href="mailto:poncikovdanila@gmail.com">poncikovdanila@gmail.com</a> · <a href="https://github.com/poncikovdanila/SmartDoc-Code-Review" target="_blank" rel="noopener">GitHub</a></span>
+    </div>
+</footer>
+
+<!-- Правила проверки -->
+<div class="modal-overlay" id="rules-modal" hidden>
+    <div class="modal">
+        <div class="modal__head">
+            <h2>Правила проверки .docx</h2>
+            <button type="button" class="modal__close" id="rules-modal-close" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="modal__body">
+            <label class="lbl">Набор правил</label>
+            <div class="chips" id="preset-chips">
+                <button type="button" class="chip preset-chip is-active" data-preset="agu">АГУ ФЦТиК (каф. ИТиК)</button>
+                <button type="button" class="chip preset-chip" data-preset="custom">Свои правила</button>
+            </div>
+            <div class="fields" id="rules-fields">
+                <div class="row">
+                    <div class="field"><label class="lbl" for="rule-font">Шрифт</label><input type="text" id="rule-font" value="Times New Roman"></div>
+                    <div class="field"><label class="lbl" for="rule-font-size">Кегль (пт)</label><input type="number" id="rule-font-size" value="14" min="8" max="28" step="0.5"></div>
+                </div>
+                <div class="row">
+                    <div class="field"><label class="lbl" for="rule-spacing">Межстрочный интервал</label><input type="number" id="rule-spacing" value="1.5" min="1" max="3" step="0.25"></div>
+                    <div class="field"><label class="lbl" for="rule-indent">Красная строка (см)</label><input type="number" id="rule-indent" value="1.25" min="0" max="5" step="0.25"></div>
+                </div>
+                <div class="row">
+                    <div class="field"><label class="lbl" for="rule-alignment">Выравнивание</label>
+                        <select id="rule-alignment"><option value="justify" selected>По ширине</option><option value="left">По левому краю</option><option value="any">Не проверять</option></select></div>
+                    <div class="field"><label class="lbl" for="rule-bib-name">Раздел библиографии</label>
+                        <select id="rule-bib-name"><option value="any" selected>Любое название</option><option value="literatura">Список литературы</option><option value="istochniki">Список использованных источников</option></select></div>
+                </div>
+                <label class="lbl">Поля страницы, см</label>
+                <div class="row row--4">
+                    <div class="field"><label class="lbl lbl--sm" for="rule-m-left">Левое</label><input type="number" id="rule-m-left" value="3.5" min="0" max="10" step="0.5"></div>
+                    <div class="field"><label class="lbl lbl--sm" for="rule-m-right">Правое</label><input type="number" id="rule-m-right" value="1" min="0" max="10" step="0.5"></div>
+                    <div class="field"><label class="lbl lbl--sm" for="rule-m-top">Верхнее</label><input type="number" id="rule-m-top" value="2.5" min="0" max="10" step="0.5"></div>
+                    <div class="field"><label class="lbl lbl--sm" for="rule-m-bottom">Нижнее</label><input type="number" id="rule-m-bottom" value="2.5" min="0" max="10" step="0.5"></div>
+                </div>
+                <label class="lbl">Что проверять</label>
+                <div class="checks">
+                    <label><input type="checkbox" id="rule-check-headings" checked><span>Заголовки (жирный, без точки)</span></label>
+                    <label><input type="checkbox" id="rule-check-page-numbers" checked><span>Нумерация страниц</span></label>
+                    <label><input type="checkbox" id="rule-check-toc" checked><span>Оглавление</span></label>
+                    <label><input type="checkbox" id="rule-check-bibliography" checked><span>Список литературы</span></label>
+                    <label><input type="checkbox" id="rule-check-hyperlinks" checked><span>Гиперссылки</span></label>
+                    <label><input type="checkbox" id="rule-check-text-color" checked><span>Цвет текста</span></label>
+                    <label><input type="checkbox" id="rule-check-tables" checked><span>Шрифт в таблицах</span></label>
+                    <label><input type="checkbox" id="rule-check-spaces" checked><span>Лишние пробелы</span></label>
+                    <label><input type="checkbox" id="rule-check-blank-lines" checked><span>Пустые строки</span></label>
+                </div>
             </div>
         </div>
-    </header>
-
-    <main>
-        <section class="upload-section" id="upload">
-            <div class="upload-card" id="dropzone">
-                <input type="file" id="file-input" accept=".py,.docx" hidden>
-                <div class="upload-card__inner" id="upload-idle">
-                    <div class="upload-card__icon-ring">
-                        <svg viewBox="0 0 48 48" width="48" height="48">
-                            <path d="M24 32 L24 8" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                            <path d="M16 16 L24 8 L32 16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M8 38 L8 42 L40 42 L40 38" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </div>
-                    <h2 class="upload-card__title">Перетащите файл сюда</h2>
-                    <p class="upload-card__subtitle">или <button type="button" class="link-button" id="browse-button">выберите вручную</button></p>
-                    <div class="upload-card__formats">
-                        <span class="format-chip">.py</span>
-                        <span class="format-chip">.docx</span>
-                        <span class="format-meta">до 5 МБ</span>
-                    </div>
-                    <div class="upload-card__divider"></div>
-                    <div class="paste-area" id="paste-area">
-                        <button type="button" class="paste-area__toggle" id="paste-toggle">
-                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                            Или вставьте код
-                        </button>
-                    </div>
-                </div>
-                <div class="paste-area__editor" id="paste-editor" hidden>
-                    <textarea class="paste-area__textarea" id="paste-textarea" placeholder="Вставьте Python-код сюда…" spellcheck="false"></textarea>
-                    <div class="paste-area__actions">
-                        <button type="button" class="primary-button primary-button--small" id="paste-check">Проверить</button>
-                        <button type="button" class="ghost-button ghost-button--small" id="paste-clear">Очистить</button>
-                    </div>
-                </div>
-                <div class="upload-card__inner" id="upload-loading" hidden>
-                    <div class="loader">
-                        <div class="loader__ring"></div>
-                        <div class="loader__ring"></div>
-                        <div class="loader__ring"></div>
-                    </div>
-                    <p class="upload-card__title">Анализируем…</p>
-                    <p class="upload-card__subtitle" id="loading-filename">file.py</p>
-                </div>
+        <div class="modal__foot">
+            <div class="modal__foot-l">
+                <button type="button" class="btn btn--ghost btn--sm" id="rules-export">Экспорт JSON</button>
+                <label class="btn btn--ghost btn--sm" id="rules-import-label">Импорт JSON<input type="file" id="rules-import" accept=".json" hidden></label>
             </div>
-            <p class="upload-note">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
-                Файлы удаляются сразу после анализа — ничего не хранится на сервере.
-            </p>
-            <button type="button" class="rules-toggle" id="rules-toggle">
-                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="3"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.93 3.93l1.41 1.41M14.66 14.66l1.41 1.41M3.93 16.07l1.41-1.41M14.66 5.34l1.41-1.41"/></svg>
-                Правила проверки .docx
-                <span class="rules-toggle__preset" id="rules-preset-label">АГУ (ГОСТ)</span>
-            </button>
-        </section>
-
-        <section class="report-section" id="report-section" hidden>
-            <header class="report-header">
-                <div class="report-header__file">
-                    <span class="file-type-badge" id="report-type">PY</span>
-                    <div>
-                        <h3 class="report-header__name" id="report-filename"></h3>
-                        <p class="report-header__sub" id="report-subtitle"></p>
-                    </div>
-                </div>
-                <button type="button" class="ghost-button" id="reset-button">
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l14 14M15 1L1 15"/></svg>
-                    Новый файл
-                </button>
-            </header>
-
-            <div class="report-actions">
-                <button type="button" class="primary-button" id="autofix-button">
-                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3l-8 8M8 11l-5 5M16 3l-3 7-4-4 7-3z"/></svg>
-                    Скачать исправленный файл
-                </button>
-                <button type="button" class="primary-button primary-button--secondary" id="pdf-button">
-                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6z"/><polyline points="14 2 14 6 18 6"/></svg>
-                    Скачать отчёт PDF
-                </button>
-            </div>
-
-            <div class="report-summary">
-                <article class="stat stat--total"><span class="stat__value" id="stat-total">0</span><span class="stat__label">всего</span></article>
-                <article class="stat stat--high"><span class="stat__value" id="stat-high">0</span><span class="stat__label">критичных</span><div class="stat__bar stat__bar--high"></div></article>
-                <article class="stat stat--medium"><span class="stat__value" id="stat-medium">0</span><span class="stat__label">средних</span><div class="stat__bar stat__bar--medium"></div></article>
-                <article class="stat stat--low"><span class="stat__value" id="stat-low">0</span><span class="stat__label">незначительных</span><div class="stat__bar stat__bar--low"></div></article>
-            </div>
-
-            <div class="severity-bar" id="severity-bar">
-                <div class="severity-bar__segment severity-bar__segment--high" id="sev-bar-high"></div>
-                <div class="severity-bar__segment severity-bar__segment--medium" id="sev-bar-medium"></div>
-                <div class="severity-bar__segment severity-bar__segment--low" id="sev-bar-low"></div>
-            </div>
-
-            <div class="source-viewer" id="source-viewer" hidden>
-                <div class="source-viewer__header">
-                    <div class="source-viewer__title">
-                        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="14 16 20 10 14 4"/><polyline points="6 4 0 10 6 16"/></svg>
-                        Исходный код
-                    </div>
-                    <div class="source-viewer__legend">
-                        <span class="source-viewer__legend-item source-viewer__legend-item--high"><span class="source-viewer__legend-dot"></span>критичные</span>
-                        <span class="source-viewer__legend-item source-viewer__legend-item--medium"><span class="source-viewer__legend-dot"></span>средние</span>
-                        <span class="source-viewer__legend-item source-viewer__legend-item--low"><span class="source-viewer__legend-dot"></span>незначительные</span>
-                    </div>
-                </div>
-                <div class="source-viewer__minimap" id="source-minimap"></div>
-                <div class="source-viewer__code" id="source-code"></div>
-            </div>
-
-            <div class="report-body" id="report-body"></div>
-        </section>
-
-        <section class="info-grid" id="about">
-            <article class="info-card">
-                <div class="info-card__icon-wrap">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                </div>
-                <h3 class="info-card__title">Проверка кода</h3>
-                <p class="info-card__text">
-                    Полный набор правил <strong>PEP&nbsp;8</strong>: отступы, длина строк, пустые строки,
-                    пробелы, именование, неиспользуемые импорты. Автоисправление одной кнопкой.
-                </p>
-            </article>
-            <article class="info-card">
-                <div class="info-card__icon-wrap">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                </div>
-                <h3 class="info-card__title">Нормоконтроль</h3>
-                <p class="info-card__text">
-                    Times New Roman 14pt, интервал 1.5, отступ 1.25 см, поля 3/1.5/2/2 см.
-                    Подписи к таблицам и рисункам. Список литературы. Автоисправление оформления.
-                </p>
-            </article>
-            <article class="info-card" id="how">
-                <div class="info-card__icon-wrap">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
-                </div>
-                <h3 class="info-card__title">Как это работает</h3>
-                <p class="info-card__text">
-                    Загружаете файл → сервер запускает анализ → получаете отчёт с подсветкой
-                    проблемных строк → скачиваете исправленный файл или PDF-отчёт.
-                </p>
-            </article>
-        </section>
-
-        <section class="history-section" id="history-section">
-            <div class="history-header">
-                <h2 class="history-title">История проверок</h2>
-                <button type="button" class="ghost-button ghost-button--small" id="clear-history-button">Очистить</button>
-            </div>
-            <div class="history-list" id="history-list">
-                <p class="history-empty" id="history-empty">Проверок ещё не было. Загрузите файл выше.</p>
-            </div>
-        </section>
-    </main>
-
-    <!-- Rules Modal -->
-    <div class="modal-overlay" id="rules-modal" hidden>
-        <div class="modal">
-            <div class="modal__header">
-                <h2 class="modal__title">Правила проверки .docx</h2>
-                <button type="button" class="modal__close" id="rules-modal-close" aria-label="Закрыть">&times;</button>
-            </div>
-            <div class="modal__body">
-                <div class="rules-presets">
-                    <label class="rules-label">Пресет</label>
-                    <div class="preset-chips" id="preset-chips">
-                        <button type="button" class="preset-chip is-active" data-preset="agu">АГУ (ГОСТ)</button>
-                        <button type="button" class="preset-chip" data-preset="custom">Свои правила</button>
-                    </div>
-                </div>
-                <div class="rules-fields" id="rules-fields">
-                    <div class="rules-row">
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-font">Шрифт</label>
-                            <input type="text" class="rules-input" id="rule-font" value="Times New Roman">
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-font-size">Кегль (пт)</label>
-                            <input type="number" class="rules-input" id="rule-font-size" value="14" min="8" max="28" step="0.5">
-                        </div>
-                    </div>
-                    <div class="rules-row">
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-spacing">Интервал</label>
-                            <input type="number" class="rules-input" id="rule-spacing" value="1.5" min="1" max="3" step="0.25">
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-indent">Красная строка (см)</label>
-                            <input type="number" class="rules-input" id="rule-indent" value="1.25" min="0" max="5" step="0.25">
-                        </div>
-                    </div>
-                    <div class="rules-row">
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-alignment">Выравнивание текста</label>
-                            <select class="rules-input" id="rule-alignment">
-                                <option value="justify" selected>По ширине</option>
-                                <option value="left">По левому краю</option>
-                                <option value="any">Не проверять</option>
-                            </select>
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label" for="rule-bib-name">Раздел библиографии</label>
-                            <select class="rules-input" id="rule-bib-name">
-                                <option value="any" selected>Любое название</option>
-                                <option value="literatura">Список литературы</option>
-                                <option value="istochniki">Список использованных источников</option>
-                            </select>
-                        </div>
-                    </div>
-                    <label class="rules-label" style="margin-top:12px">Поля страницы (см)</label>
-                    <div class="rules-row rules-row--4">
-                        <div class="rules-field">
-                            <label class="rules-label rules-label--small" for="rule-m-left">Левое</label>
-                            <input type="number" class="rules-input" id="rule-m-left" value="3" min="0" max="10" step="0.5">
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label rules-label--small" for="rule-m-right">Правое</label>
-                            <input type="number" class="rules-input" id="rule-m-right" value="1.5" min="0" max="10" step="0.5">
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label rules-label--small" for="rule-m-top">Верхнее</label>
-                            <input type="number" class="rules-input" id="rule-m-top" value="2" min="0" max="10" step="0.5">
-                        </div>
-                        <div class="rules-field">
-                            <label class="rules-label rules-label--small" for="rule-m-bottom">Нижнее</label>
-                            <input type="number" class="rules-input" id="rule-m-bottom" value="2" min="0" max="10" step="0.5">
-                        </div>
-                    </div>
-                    <label class="rules-label" style="margin-top:16px">Проверки (вкл/выкл)</label>
-                    <div class="rules-checks">
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-headings" checked><span>Заголовки (жирный, без точки)</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-page-numbers" checked><span>Нумерация страниц</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-toc" checked><span>Оглавление</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-bibliography" checked><span>Список литературы</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-hyperlinks" checked><span>Гиперссылки</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-text-color" checked><span>Цвет текста</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-tables" checked><span>Шрифт в таблицах</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-spaces" checked><span>Лишние пробелы</span></label>
-                        <label class="rules-toggle-check"><input type="checkbox" id="rule-check-blank-lines" checked><span>Пустые строки</span></label>
-                    </div>
-                </div>
-            </div>
-            <div class="modal__footer">
-                <div class="rules-footer-left">
-                    <button type="button" class="ghost-button ghost-button--small" id="rules-export" title="Экспорт правил в JSON">⬇ Экспорт</button>
-                    <label class="ghost-button ghost-button--small" id="rules-import-label" title="Импорт правил из JSON">⬆ Импорт
-                        <input type="file" id="rules-import" accept=".json" hidden>
-                    </label>
-                </div>
-                <button type="button" class="primary-button" id="rules-save">Сохранить</button>
-            </div>
+            <button type="button" class="btn" id="rules-save">Сохранить</button>
         </div>
     </div>
+</div>
 
-    <footer class="footer">
-        <div class="footer__row">
-            <div class="footer__col">
-                <span class="footer__brand">SD/CR</span>
-                <span class="footer__copy">SmartDoc &amp; Code Review</span>
-            </div>
-            <div class="footer__col footer__col--center">
-                <p>Данила Полстянов</p>
-                <a href="mailto:poncikovdanila@gmail.com" class="footer__email">poncikovdanila@gmail.com</a>
-            </div>
-            <div class="footer__col footer__col--right">
-                <p>АГУ им. В.&nbsp;Н.&nbsp;Татищева</p>
-                <p class="footer__dim">Направление 09.03.02 · 2026</p>
-            </div>
+<!-- Первый визит -->
+<div class="modal-overlay" id="onboarding-modal" hidden>
+    <div class="modal modal--sm">
+        <div class="modal__head">
+            <h2>Коротко о сервисе</h2>
+            <button type="button" class="modal__close" id="onboarding-close" aria-label="Закрыть">&times;</button>
         </div>
-    </footer>
+        <div class="modal__body">
+            <p class="modal__p">SmartDoc проверяет оформление документов <b>.docx</b> по требованиям АГУ (ФЦТиК) и код <b>.py</b> по PEP 8. Ничего не сохраняет: файл удаляется сразу после проверки.</p>
+            <p class="modal__p">Если в вашем вузе другие требования, откройте <b>«Правила»</b> в шапке и задайте свои шрифт, поля и интервалы.</p>
+            <div class="modal__box">По умолчанию: Times New Roman 14 (допускается 12) · интервал 1,5 · красная строка 1,25 см · поля 3,5 / 1 / 2,5 / 2,5 см</div>
+        </div>
+        <div class="modal__foot modal__foot--r">
+            <button type="button" class="btn" id="onboarding-start">Понятно</button>
+        </div>
+    </div>
+</div>
 
-    <script src="/static/app.js?v=9.2"></script>
+<script src="/static/app.js?v=11.0"></script>
 </body>
 </html>
