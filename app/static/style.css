@@ -120,6 +120,9 @@ button { font-family: inherit; }
 .report__file h2 { font-size: 18px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .report__file p { color: var(--ink3); font-size: 13px; }
 .report__grid { display: grid; grid-template-columns: 1fr 360px; gap: 20px; align-items: start; }
+/* Без min-width колонка растягивается по самой длинной строке кода
+   и выталкивает карточку с итогами за край экрана. */
+.report__main { min-width: 0; }
 .report__side { position: sticky; top: 78px; }
 
 .vcard { background: #fff; border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--sh); padding: 20px; }
