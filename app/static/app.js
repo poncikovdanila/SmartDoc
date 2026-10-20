@@ -21,6 +21,10 @@
     const sevBarHigh = $('sev-bar-high'), sevBarMedium = $('sev-bar-medium'), sevBarLow = $('sev-bar-low');
     const sourceViewer = $('source-viewer'), sourceCode = $('source-code'), sourceMinimap = $('source-minimap');
     const docViewer = $('doc-viewer'), docPage = $('doc-page');
+    const aiBibButton = $('ai-bib-button'), aiBibModal = $('ai-bib-modal');
+    const aiBibStyle = $('ai-bib-style'), aiBibHint = $('ai-bib-hint');
+    const aiBibRules = $('ai-bib-rules'), aiBibResult = $('ai-bib-result');
+    const aiBibRun = $('ai-bib-run'), aiBibClose = $('ai-bib-close'), aiBibCancel = $('ai-bib-cancel');
     const docMinimap = $('doc-minimap'), docNote = $('doc-note');
     const themeToggle = $('theme-toggle');
     const historyList = $('history-list'), historyEmpty = $('history-empty'), clearHistoryBtn = $('clear-history-button');
@@ -693,6 +697,7 @@
 
         autofixButton.disabled = true;
         updatePreviewButton();
+        aiBibButton.hidden = true;
         pdfButton.disabled = true;
         sourceViewer.hidden = true;
         docViewer.hidden = true;
@@ -788,6 +793,172 @@
         previewButton.title = autofixButton.title;
     }
 
+    // ─── Необязательный слой с участием ИИ ───
+    // Сервер может работать без ключа API: тогда /api/ai/status отвечает
+    // configured: false, и кнопки просто не появляются. Детерминированные
+    // проверки от этого не зависят.
+
+    let aiState = { configured: false, styles: [], defaultStyle: null };
+
+    fetch('/api/ai/status').then(r => r.ok ? r.json() : null).then(data => {
+        if (!data || !data.configured) return;
+        aiState = {
+            configured: true,
+            styles: data.citation_styles || [],
+            defaultStyle: data.default_style,
+        };
+        aiBibStyle.innerHTML = '';
+        aiState.styles.forEach(style => {
+            const option = document.createElement('option');
+            option.value = style.key;
+            option.textContent = style.label;
+            option.dataset.hint = style.hint || '';
+            aiBibStyle.appendChild(option);
+        });
+        if (aiState.defaultStyle) aiBibStyle.value = aiState.defaultStyle;
+        updateStyleHint();
+        if (currentReport) updateAiBibButton(currentReport);
+    }).catch(() => {});
+
+    function updateStyleHint() {
+        const option = aiBibStyle.selectedOptions[0];
+        aiBibHint.textContent = option ? (option.dataset.hint || '') : '';
+    }
+    aiBibStyle.addEventListener('change', updateStyleHint);
+
+    // Кнопка появляется только когда есть что разбирать: ключ настроен,
+    // отчёт по документу и в нём найден список литературы.
+    function updateAiBibButton(report) {
+        const entries = (report && report.bibliography_entries) || [];
+        aiBibButton.hidden = !(aiState.configured && entries.length);
+    }
+
+    const closeAiBib = () => { aiBibModal.hidden = true; };
+    aiBibClose.addEventListener('click', closeAiBib);
+    aiBibCancel.addEventListener('click', closeAiBib);
+    aiBibModal.addEventListener('click', e => { if (e.target === aiBibModal) closeAiBib(); });
+
+    aiBibButton.addEventListener('click', () => {
+        const entries = (currentReport && currentReport.bibliography_entries) || [];
+        aiBibResult.innerHTML = `<p class="ai-summary">Найдено источников: ${entries.length}.</p>`;
+        aiBibModal.hidden = false;
+    });
+
+    aiBibRun.addEventListener('click', async () => {
+        const entries = (currentReport && currentReport.bibliography_entries) || [];
+        if (!entries.length) return;
+        aiBibRun.disabled = true;
+        const orig = aiBibRun.textContent;
+        aiBibRun.textContent = 'Разбираем…';
+        aiBibResult.innerHTML = '<p class="ai-summary">Идёт разбор, это занимает несколько секунд…</p>';
+        try {
+            const body = {
+                entries: entries.map(e => ({ number: e.number, text: e.text })),
+                style: aiBibStyle.value || undefined,
+            };
+            const rules = aiBibRules.value.trim();
+            if (rules) body.requirements = rules;
+
+            const r = await fetch('/api/ai/bibliography', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || `Ошибка ${r.status}`);
+            }
+            renderBibReview(await r.json(), entries);
+        } catch (err) {
+            aiBibResult.innerHTML = `<div class="error-banner">${esc(err.message)}</div>`;
+        }
+        finally { aiBibRun.disabled = false; aiBibRun.textContent = orig; }
+    });
+
+    function renderBibReview(data, entries) {
+        const reviews = data.entries || [];
+        const byNumber = {};
+        entries.forEach(e => { byNumber[e.number] = e.text; });
+
+        const bad = reviews.filter(r => !r.ok).length;
+        let html = `<p class="ai-summary">Стиль: <b>${esc(data.style_label || '')}</b>. `
+            + `Разобрано записей: ${reviews.length}, с замечаниями: ${bad}.`
+            + (data.truncated ? ` Не поместилось: ${data.truncated}.` : '')
+            + '</p>';
+
+        reviews.forEach(review => {
+            const source = byNumber[review.number] || '';
+            html += `<div class="ai-entry ai-entry--${review.ok ? 'ok' : 'bad'}">`
+                + `<div class="ai-entry__head"><span>Источник ${review.number}</span>`
+                + (review.kind ? `<span class="ai-entry__kind">${esc(review.kind)}</span>` : '')
+                + (review.ok ? '<span>замечаний нет</span>' : '')
+                + '</div>'
+                + `<div class="ai-entry__text">${esc(source)}</div>`;
+            if (review.problems && review.problems.length) {
+                html += '<ul class="ai-entry__problems">'
+                    + review.problems.map(p => `<li>${esc(p)}</li>`).join('')
+                    + '</ul>';
+            }
+            if (review.corrected) {
+                html += `<div class="ai-entry__fixed"><b>Как лучше</b>${esc(review.corrected)}</div>`;
+            }
+            html += '</div>';
+        });
+        aiBibResult.innerHTML = html;
+    }
+
+    // Объяснение одного замечания: разворачивает сухую формулировку
+    // правила в «что не так, почему так принято, как починить руками».
+    function attachExplain(el, issue) {
+        if (!aiState.configured) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'issue__explain';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'issue__explain-btn';
+        button.textContent = 'Объяснить подробнее';
+        const body = document.createElement('div');
+        body.className = 'issue__explain-body';
+        body.hidden = true;
+
+        let loaded = false;
+        button.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            if (loaded) { body.hidden = !body.hidden; return; }
+            button.disabled = true;
+            button.textContent = 'Объясняем…';
+            try {
+                const r = await fetch('/api/ai/explain', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ issue }),
+                });
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    throw new Error(d.detail || `Ошибка ${r.status}`);
+                }
+                const data = await r.json();
+                body.innerHTML = '<dl>'
+                    + `<dt>Что не так</dt><dd>${esc(data.what || '')}</dd>`
+                    + `<dt>Почему так принято</dt><dd>${esc(data.why || '')}</dd>`
+                    + `<dt>Как исправить</dt><dd>${esc(data.how || '')}</dd>`
+                    + '</dl>';
+                body.hidden = false;
+                loaded = true;
+                button.textContent = 'Свернуть';
+            } catch (err) {
+                body.innerHTML = `<div class="error-banner">${esc(err.message)}</div>`;
+                body.hidden = false;
+                button.textContent = 'Объяснить подробнее';
+            }
+            finally { button.disabled = false; }
+        });
+
+        wrap.appendChild(button);
+        wrap.appendChild(body);
+        el.querySelector('.issue__body').appendChild(wrap);
+    }
+
     function showLoading(fn) { uploadIdle.hidden = true; uploadLoading.hidden = false; loadingFilename.textContent = fn; setReportVisible(false); }
     function hideLoading() { uploadIdle.hidden = false; uploadLoading.hidden = true; }
 
@@ -826,6 +997,7 @@
         reportBody.innerHTML = '';
         updateAutofixButton(report);
         updatePreviewButton();
+        updateAiBibButton(report);
         pdfButton.disabled = !!report.error;
         if (report.error) {
             reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`;
@@ -1285,6 +1457,7 @@
             body.appendChild(pre);
         }
         el.appendChild(loc); el.appendChild(body);
+        attachExplain(el, iss);
         return el;
     }
 
@@ -1295,7 +1468,8 @@
         resetVerdict();
         sevBarHigh.style.width='0%'; sevBarMedium.style.width='0%'; sevBarLow.style.width='0%';
         reportBody.innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
-        autofixButton.disabled = true; updatePreviewButton(); pdfButton.disabled = true;
+        autofixButton.disabled = true; updatePreviewButton(); aiBibButton.hidden = true;
+        pdfButton.disabled = true;
     }
 
     // ─── History ───
@@ -1306,6 +1480,7 @@
         // Сохраняем полный отчёт + timestamp
         const entry = Object.assign({}, r, { timestamp: Date.now() });
         delete entry.document_preview;   // до 100 КБ на документ, localStorage не резиновый
+        delete entry.bibliography_entries;
         h.unshift(entry);
         // Ограничиваем 30 записями; для экономии localStorage — обрезаем source_lines у старых
         const trimmed = h.slice(0, 30).map((e, idx) => {

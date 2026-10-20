@@ -40,6 +40,9 @@ from app.checkers.multi_lang_checker import (
     check_code_file,
 )
 from app.pdf_export import generate_pdf_report
+from app.ai.bibliography import CITATION_STYLES, DEFAULT_STYLE, review_bibliography
+from app.ai.client import AINotConfigured, is_configured as ai_is_configured
+from app.ai.explain import explain_issue
 from app.template_generator import generate_template
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -378,6 +381,81 @@ async def get_languages():
         ],
         "max_file_size": MAX_FILE_SIZE,
     })
+
+
+# ───────── Необязательный слой с участием языковой модели ─────────
+#
+# Без ключа API эти эндпоинты честно отвечают, что не настроены, а всё
+# остальное работает как прежде. Проверки оформления намеренно остаются
+# детерминированными: модели отдаются только задачи, где правила нечёткие.
+
+def _require_ai() -> None:
+    if not ai_is_configured():
+        raise HTTPException(
+            503,
+            "Проверки с участием ИИ не настроены на этом сервере. "
+            "Основные проверки работают без них.",
+        )
+
+
+@app.get("/api/ai/status")
+async def ai_status():
+    """Доступен ли слой ИИ и какие стили оформления библиографии есть."""
+    return JSONResponse(content={
+        "configured": ai_is_configured(),
+        "citation_styles": [
+            {"key": key, "label": value["label"], "hint": value["hint"]}
+            for key, value in CITATION_STYLES.items()
+        ],
+        "default_style": DEFAULT_STYLE,
+    })
+
+
+@app.post("/api/ai/bibliography")
+async def ai_bibliography(payload: dict):
+    """Разбор списка литературы по выбранному стилю оформления.
+
+    Принимает только сами записи, а не документ: на сервер и дальше в
+    модель уходит список источников, остальной текст работы остаётся
+    у пользователя.
+    """
+    _require_ai()
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise HTTPException(400, "Не переданы записи списка литературы")
+    for entry in entries:
+        if not isinstance(entry, dict) or not str(entry.get("text", "")).strip():
+            raise HTTPException(400, "Каждая запись должна содержать поле text")
+
+    style = payload.get("style")
+    requirements = payload.get("requirements")
+    if requirements is not None and not isinstance(requirements, str):
+        raise HTTPException(400, "Поле requirements должно быть строкой")
+
+    try:
+        result = review_bibliography(entries, style=style, requirements=requirements)
+    except AINotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Не удалось разобрать список литературы: {exc}")
+    return JSONResponse(content=result)
+
+
+@app.post("/api/ai/explain")
+async def ai_explain(payload: dict):
+    """Объяснение одного замечания простым языком."""
+    _require_ai()
+    issue = payload.get("issue")
+    if not isinstance(issue, dict) or not issue.get("code"):
+        raise HTTPException(400, "Не передано замечание")
+
+    try:
+        result = explain_issue(issue)
+    except AINotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Не удалось объяснить замечание: {exc}")
+    return JSONResponse(content=result)
 
 
 @app.get("/health")

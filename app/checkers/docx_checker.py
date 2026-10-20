@@ -33,6 +33,7 @@ from docx.text.paragraph import Paragraph
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from app.checkers.docx_preview import build_preview
+from app.checkers.docx_extras import collect_bibliography_entries
 from app.checkers.docx_extras import (
     check_bibliography,
     check_figure_captions,
@@ -725,4 +726,7 @@ def check_docx_document(file_path: Path, original_filename: str,
         # Структура документа для показа с подсветкой: индексы абзацев
         # совпадают с para_index в замечаниях
         "document_preview": build_preview(document),
+        # Записи списка литературы: нужны для разбора по стилю оформления,
+        # чтобы отправлять только их, а не весь документ
+        "bibliography_entries": collect_bibliography_entries(document),
     }

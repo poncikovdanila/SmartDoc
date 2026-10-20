@@ -874,40 +874,105 @@ def check_appendix_format(document: DocxDocument) -> list[dict[str, Any]]:
 # ═══════ 18. Формат библиографических записей ═══════
 
 BIB_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+# Веб-ресурс: явный адрес либо доменное имя внутри записи
+BIB_WEB_RE = re.compile(
+    r"https?://|www\.|\b[\w-]+\.(?:ru|com|org|net|edu|info|io|рф)\b",
+    re.IGNORECASE,
+)
+# Дата обращения — то, что для веб-ресурса требуется вместо года издания
+BIB_ACCESS_DATE_RE = re.compile(
+    r"дат[аы]\s+обращения|режим\s+доступа|accessed", re.IGNORECASE
+)
 BIB_PAGES_RE = re.compile(r"\d+\s*[сcС]\b\.?|\d+\s*p\b\.?", re.IGNORECASE)
+
+
+def collect_bibliography_entries(document: DocxDocument) -> list[dict[str, Any]]:
+    """Собирает записи списка литературы: номер, текст, индекс абзаца.
+
+    Выделено из проверки формата, потому что записи нужны ещё и отдельно —
+    например, чтобы отправить их на разбор по ГОСТ 7.1. Отправляется только
+    список источников, а не весь документ.
+    """
+    entries: list[dict[str, Any]] = []
+    in_bib = False
+
+    for para_index, paragraph in enumerate(document.paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        style_name = (paragraph.style.name or "").lower()
+        # Строки оглавления выглядят как заголовки разделов («СПИСОК
+        # ИСТОЧНИКОВ\t28») и раньше принимались за сам раздел, после чего
+        # сборщик упирался в следующий заголовок и возвращал пустой список.
+        if "toc" in style_name:
+            continue
+        # Заголовок раздела — это отдельный короткий абзац, а не упоминание
+        # внутри предложения, поэтому сверяем целиком, а не по вхождению.
+        normalized = text.lower().rstrip(".:").strip()
+        if normalized in BIBLIOGRAPHY_HEADERS:
+            in_bib = True
+            continue
+        if not in_bib:
+            continue
+        # Конец библиографии — начался новый раздел
+        if _is_heading(paragraph):
+            break
+        # Номер набран вручную «1. …» либо задан нумерацией Word. Во втором
+        # случае в paragraph.text номера нет, поэтому проверяем разметку.
+        ppr = paragraph._element.pPr
+        has_word_numbering = ppr is not None and ppr.find(qn("w:numPr")) is not None
+        if not (BIB_ENTRY_RE.match(text) or has_word_numbering):
+            continue
+        entries.append({
+            "number": len(entries) + 1,
+            "text": text,
+            "para_index": para_index,
+            "auto_numbered": bool(has_word_numbering and not BIB_ENTRY_RE.match(text)),
+        })
+
+    return entries
 
 
 def check_bibliography_format(document: DocxDocument) -> list[dict[str, Any]]:
     """Проверяет формат отдельных записей в списке литературы."""
     issues: list[dict[str, Any]] = []
-    in_bib = False
-    entry_count = 0
 
-    for paragraph in document.paragraphs:
-        text = paragraph.text.strip()
-        if not text:
-            continue
-        text_lower = text.lower()
-        if any(h in text_lower for h in BIBLIOGRAPHY_HEADERS):
-            in_bib = True
-            continue
-        if in_bib:
-            # Конец библиографии — новый раздел
-            if _is_heading(paragraph) and not any(h in text_lower for h in BIBLIOGRAPHY_HEADERS):
-                break
-            m = BIB_ENTRY_RE.match(text)
-            if not m:
-                continue
-            entry_count += 1
-            # Проверяем наличие года
-            if not BIB_YEAR_RE.search(text):
+    for entry in collect_bibliography_entries(document):
+        text = entry["text"]
+
+        # У веб-ресурса года издания может не быть вовсе: вместо него
+        # стандарт требует дату обращения. Требовать с сайта «год издания»
+        # значит выдавать замечание, которое невозможно выполнить.
+        #
+        # Спрашиваем дату обращения только там, где выходных данных нет.
+        # Если у записи есть год и издательство, а URL приведён для
+        # удобства, источник уже однозначно определён, и придираться к
+        # дате обращения значит создавать шум.
+        if BIB_WEB_RE.search(text) and not BIB_YEAR_RE.search(text):
+            if not BIB_ACCESS_DATE_RE.search(text):
                 issues.append({
-                    "location": f"Источник №{entry_count}",
-                    "code": "BIB_NO_YEAR",
-                    "message": "Не найден год издания в записи",
-                    "description": "Каждый источник должен содержать год издания",
+                    "location": f"Источник №{entry['number']}",
+                    "para_index": entry["para_index"],
+                    "code": "BIB_NO_ACCESS_DATE",
+                    "message": "У электронного ресурса не указана дата обращения",
+                    "description": (
+                        "Для ссылки на сайт указывают дату обращения: "
+                        "«(дата обращения: 15.03.2026)»"
+                    ),
                     "severity": "low",
-                    "expected": "год (19xx или 20xx)", "actual": text[:60],
+                    "expected": "дата обращения", "actual": text[:60],
                 })
+            continue
+
+        if not BIB_YEAR_RE.search(text):
+            issues.append({
+                "location": f"Источник №{entry['number']}",
+                "para_index": entry["para_index"],
+                "code": "BIB_NO_YEAR",
+                "message": "Не найден год издания в записи",
+                "description": "Каждый источник должен содержать год издания",
+                "severity": "low",
+                "expected": "год (19xx или 20xx)", "actual": text[:60],
+            })
 
     return issues

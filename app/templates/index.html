@@ -153,6 +153,7 @@
                     <div class="vcard__actions">
                         <button type="button" class="btn" id="autofix-button">Исправить и скачать</button>
                         <button type="button" class="btn btn--ghost" id="preview-button">Что изменится?</button>
+                        <button type="button" class="btn btn--ghost" id="ai-bib-button" hidden>Разобрать список литературы</button>
                         <button type="button" class="btn btn--ghost" id="pdf-button">Отчёт PDF</button>
                     </div>
                 </div>
@@ -193,7 +194,7 @@
     </section>
 
     <section class="trust">
-        <p>Правила выверены по <b>работе, которую кафедра ИТиК приняла без единого замечания</b>. Ядро проверки покрыто 374 автотестами, 38 видов замечаний по требованиям ФЦТиК АГУ.</p>
+        <p>Правила выверены по <b>работе, которую кафедра ИТиК приняла без единого замечания</b>. Ядро проверки покрыто 396 автотестами, 38 видов замечаний по требованиям ФЦТиК АГУ.</p>
         <a class="btn btn--soft" href="/rules" target="_blank" rel="noopener" id="rules-doc-link">Список правил</a>
     </section>
 
@@ -275,6 +276,34 @@
 </div>
 
 <!-- Первый визит -->
+<div class="modal-overlay" id="ai-bib-modal" hidden>
+    <div class="modal modal--wide">
+        <div class="modal__head">
+            <h2>Разбор списка литературы</h2>
+            <button type="button" class="modal__close" id="ai-bib-close" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="modal__body">
+            <div class="ai-setup">
+                <label class="field">
+                    <span class="lbl">Стиль оформления</span>
+                    <select id="ai-bib-style"></select>
+                </label>
+                <p class="ai-hint" id="ai-bib-hint"></p>
+                <label class="field">
+                    <span class="lbl">Требования вашей кафедры <span class="lbl--opt">необязательно</span></span>
+                    <textarea id="ai-bib-rules" rows="3" placeholder="Если на кафедре свои правила, опишите их здесь. Они будут важнее выбранного стиля."></textarea>
+                </label>
+                <p class="ai-note">На разбор уходит только список источников. Текст работы остаётся у вас и на проверку не отправляется.</p>
+            </div>
+            <div id="ai-bib-result"></div>
+        </div>
+        <div class="modal__foot modal__foot--r">
+            <button type="button" class="btn btn--ghost btn--sm" id="ai-bib-cancel">Закрыть</button>
+            <button type="button" class="btn btn--sm" id="ai-bib-run">Разобрать</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="preview-modal" hidden>
     <div class="modal modal--wide">
         <div class="modal__head">
