@@ -41,7 +41,13 @@ from app.checkers.multi_lang_checker import (
 )
 from app.pdf_export import generate_pdf_report
 from app.ai.bibliography import CITATION_STYLES, DEFAULT_STYLE, review_bibliography
-from app.ai.client import AINotConfigured, is_configured as ai_is_configured
+from app.ai.assistant import MAX_HISTORY_MESSAGES, run_chat
+from app.ai.providers import (
+    AINotConfigured,
+    active_provider,
+    is_configured as ai_is_configured,
+    model_name,
+)
 from app.ai.explain import explain_issue
 from app.template_generator import generate_template
 
@@ -403,6 +409,8 @@ async def ai_status():
     """Доступен ли слой ИИ и какие стили оформления библиографии есть."""
     return JSONResponse(content={
         "configured": ai_is_configured(),
+        "provider": active_provider(),
+        "model": model_name(),
         "citation_styles": [
             {"key": key, "label": value["label"], "hint": value["hint"]}
             for key, value in CITATION_STYLES.items()
@@ -455,6 +463,42 @@ async def ai_explain(payload: dict):
         raise HTTPException(503, str(exc))
     except Exception as exc:
         raise HTTPException(502, f"Не удалось объяснить замечание: {exc}")
+    return JSONResponse(content=result)
+
+
+@app.post("/api/ai/chat")
+async def ai_chat(payload: dict):
+    """Ход диалога с ассистентом.
+
+    Состояния на сервере нет: переписка и отчёт приходят от браузера
+    каждым запросом. Инструменты, доступные модели, только читают отчёт
+    и изменить документ не могут.
+    """
+    _require_ai()
+
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(400, "Не передана переписка")
+    if len(messages) > MAX_HISTORY_MESSAGES * 2:
+        raise HTTPException(400, "Слишком длинная переписка")
+    for message in messages:
+        if not isinstance(message, dict):
+            raise HTTPException(400, "Некорректный формат сообщения")
+        if message.get("role") not in ("user", "assistant"):
+            raise HTTPException(400, "Допустимые роли: user и assistant")
+        if not str(message.get("content", "")).strip():
+            raise HTTPException(400, "Пустое сообщение")
+
+    report = payload.get("report")
+    if not isinstance(report, dict) or not report.get("file_type"):
+        raise HTTPException(400, "Не передан отчёт о проверке")
+
+    try:
+        result = run_chat(messages, report)
+    except AINotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Ассистент не ответил: {exc}")
     return JSONResponse(content=result)
 
 

@@ -227,6 +227,27 @@ button { font-family: inherit; }
 .ai-entry__fixed { font-family: var(--doc); font-size: 13.5px; background: var(--ok-soft); border-radius: var(--r-sm); padding: 8px 10px; }
 .ai-entry__fixed b { font-family: var(--f); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); display: block; margin-bottom: 3px; }
 .ai-summary { font-size: 13.5px; color: var(--ink2); margin-bottom: 12px; }
+
+/* Панель ассистента в отчёте */
+.chat { background: #fff; border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--sh); padding: 16px 18px; margin-top: 14px; }
+.chat__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.chat__title { font-weight: 700; font-size: 15px; }
+.chat__model { font-size: 11.5px; color: var(--ink3); font-family: var(--mono); }
+.chat__log { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+.chat__log:empty { display: none; }
+.chat__msg { font-size: 13.5px; line-height: 1.5; border-radius: var(--r-sm); padding: 9px 12px; white-space: pre-wrap; }
+.chat__msg--user { background: var(--acc-soft); color: var(--ink); align-self: flex-end; max-width: 92%; }
+.chat__msg--bot { background: var(--bg2); color: var(--ink); }
+.chat__msg--wait { color: var(--ink3); }
+.chat__msg--error { background: var(--err-soft); color: var(--err); }
+.chat__tools { font-size: 11.5px; color: var(--ink3); margin-top: 5px; font-family: var(--mono); }
+.chat__hints { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.chat__hints:empty { display: none; }
+.chat__hint { background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; color: var(--ink2); cursor: pointer; }
+.chat__hint:hover { background: var(--acc-soft); border-color: var(--acc-soft); color: var(--acc); }
+.chat__form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.chat__form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; resize: vertical; min-height: 54px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; color: var(--ink); }
+.chat__note { font-size: 12px; color: var(--ink3); margin: 8px 0 0; }
 .issue__explain { margin-top: 8px; }
 .issue__explain-btn { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; color: var(--acc); cursor: pointer; }
 .issue__explain-btn:hover { text-decoration: underline; }

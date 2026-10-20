@@ -157,6 +157,23 @@
                         <button type="button" class="btn btn--ghost" id="pdf-button">Отчёт PDF</button>
                     </div>
                 </div>
+
+                <!-- Панель ассистента. Появляется только если на сервере
+                     настроен ключ: без него /api/ai/status отвечает
+                     configured: false и панель остаётся скрытой. -->
+                <div class="chat" id="chat-panel" hidden>
+                    <div class="chat__head">
+                        <span class="chat__title">Спросить ассистента</span>
+                        <span class="chat__model" id="chat-model"></span>
+                    </div>
+                    <div class="chat__log" id="chat-log"></div>
+                    <div class="chat__hints" id="chat-hints"></div>
+                    <form class="chat__form" id="chat-form">
+                        <textarea id="chat-input" rows="2" placeholder="Например: что исправить в первую очередь?"></textarea>
+                        <button type="submit" class="btn btn--sm" id="chat-send">Спросить</button>
+                    </form>
+                    <p class="chat__note">Отвечает по этому отчёту и тексту документа. Менять файл не может.</p>
+                </div>
             </aside>
         </div>
     </section>
@@ -194,7 +211,7 @@
     </section>
 
     <section class="trust">
-        <p>Правила выверены по <b>работе, которую кафедра ИТиК приняла без единого замечания</b>. Ядро проверки покрыто 396 автотестами, 38 видов замечаний по требованиям ФЦТиК АГУ.</p>
+        <p>Правила выверены по <b>работе, которую кафедра ИТиК приняла без единого замечания</b>. Ядро проверки покрыто 431 автотестом, 38 видов замечаний по требованиям ФЦТиК АГУ.</p>
         <a class="btn btn--soft" href="/rules" target="_blank" rel="noopener" id="rules-doc-link">Список правил</a>
     </section>
 

@@ -8,3 +8,4 @@ autopep8>=2.0.0
 autoflake>=2.0.0
 reportlab>=4.0.0
 anthropic>=1.0.0   # нужен только при включённом слое ИИ (ANTHROPIC_API_KEY)
+# Другой поставщик модели (DeepSeek, Qwen, Ollama): requirements-ai.txt

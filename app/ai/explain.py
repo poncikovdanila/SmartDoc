@@ -14,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.ai.client import EFFORT, MODEL, get_client
+from app.ai.providers import get_provider
+from app.ai.schema import strict_schema
 
 SYSTEM = """Ты объясняешь замечания нормоконтроля автору студенческой работы.
 
@@ -67,13 +68,9 @@ def explain_issue(issue: dict[str, Any]) -> dict[str, str]:
         if value:
             lines.append(f"{label}: {value}")
 
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=4000,
+    raw = get_provider().parse(
         system=SYSTEM,
-        output_config={"effort": EFFORT},
-        output_format=Explanation,
-        messages=[{"role": "user", "content": "\n".join(lines)}],
+        prompt="\n".join(lines),
+        schema=strict_schema(Explanation),
     )
-
-    return response.parsed_output.model_dump()
+    return Explanation.model_validate(raw).model_dump()

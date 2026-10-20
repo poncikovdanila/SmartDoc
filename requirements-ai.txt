@@ -1,0 +1,6 @@
+# Поставщики модели для необязательного слоя с участием ИИ.
+# anthropic уже есть в requirements.txt, здесь он для полноты картины.
+# openai нужен для любого OpenAI-совместимого API: DeepSeek, Qwen,
+# OpenRouter, а также локальных моделей через Ollama или vLLM.
+anthropic>=1.0.0
+openai>=1.40.0

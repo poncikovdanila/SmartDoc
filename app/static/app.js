@@ -26,6 +26,9 @@
     const aiBibRules = $('ai-bib-rules'), aiBibResult = $('ai-bib-result');
     const aiBibRun = $('ai-bib-run'), aiBibClose = $('ai-bib-close'), aiBibCancel = $('ai-bib-cancel');
     const docMinimap = $('doc-minimap'), docNote = $('doc-note');
+    const chatPanel = $('chat-panel'), chatLog = $('chat-log'), chatHints = $('chat-hints');
+    const chatForm = $('chat-form'), chatInput = $('chat-input');
+    const chatSend = $('chat-send'), chatModel = $('chat-model');
     const themeToggle = $('theme-toggle');
     const historyList = $('history-list'), historyEmpty = $('history-empty'), clearHistoryBtn = $('clear-history-button');
 
@@ -817,7 +820,8 @@
         });
         if (aiState.defaultStyle) aiBibStyle.value = aiState.defaultStyle;
         updateStyleHint();
-        if (currentReport) updateAiBibButton(currentReport);
+        chatModel.textContent = data.model || '';
+        if (currentReport) { updateAiBibButton(currentReport); updateChatPanel(currentReport); }
     }).catch(() => {});
 
     function updateStyleHint() {
@@ -906,6 +910,111 @@
         });
         aiBibResult.innerHTML = html;
     }
+
+    // Панель чата. Состояния на сервере нет: переписка живёт здесь, и
+    // каждый запрос уходит вместе с отчётом. Поэтому при новой проверке
+    // переписку надо начинать заново — она про прежний файл.
+
+    let chatMessages = [];
+    let chatBusy = false;
+
+    // Подсказки-затравки: вопросы, которые имеют смысл именно для этого
+    // отчёта. Пустой отчёт и отчёт с критичными замечаниями — разные случаи.
+    function chatSuggestions(report) {
+        const out = [];
+        if (!report) return out;
+        if (report.summary && report.summary.high) out.push('Что исправить в первую очередь?');
+        if (report.total_issues) out.push('Какие замечания придётся править руками?');
+        else out.push('Что именно проверялось?');
+        if (isCodeReport(report)) out.push('Объясни самое частое замечание');
+        else out.push('Что не так с оформлением заголовков?');
+        return out;
+    }
+
+    function updateChatPanel(report) {
+        chatPanel.hidden = !(aiState.configured && report);
+        chatHints.innerHTML = '';
+        if (chatPanel.hidden || chatMessages.length) return;
+        chatSuggestions(report).forEach(text => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'chat__hint';
+            chip.textContent = text;
+            chip.addEventListener('click', () => sendChat(text));
+            chatHints.appendChild(chip);
+        });
+    }
+
+    function resetChat(report) {
+        chatMessages = [];
+        chatLog.innerHTML = '';
+        chatInput.value = '';
+        updateChatPanel(report);
+    }
+
+    function addChatMessage(role, text, extra) {
+        const el = document.createElement('div');
+        el.className = 'chat__msg chat__msg--' + role;
+        el.textContent = text;
+        if (extra) {
+            const note = document.createElement('div');
+            note.className = 'chat__tools';
+            note.textContent = extra;
+            el.appendChild(note);
+        }
+        chatLog.appendChild(el);
+        chatLog.scrollTop = chatLog.scrollHeight;
+        return el;
+    }
+
+    async function sendChat(text) {
+        const question = String(text || '').trim();
+        if (!question || chatBusy || !currentReport) return;
+        chatBusy = true;
+        chatSend.disabled = true;
+        chatHints.innerHTML = '';
+        chatInput.value = '';
+
+        addChatMessage('user', question);
+        chatMessages.push({ role: 'user', content: question });
+        const waiting = addChatMessage('wait', 'Думаю…');
+
+        try {
+            const r = await fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: chatMessages, report: currentReport }),
+            });
+            if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || `Ошибка ${r.status}`);
+            }
+            const data = await r.json();
+            waiting.remove();
+            const tools = (data.tools_used || []).join(', ');
+            addChatMessage('bot', data.reply || 'Ответа нет.',
+                tools ? `смотрел: ${tools}` : '');
+            chatMessages.push({ role: 'assistant', content: data.reply || '—' });
+        } catch (err) {
+            waiting.remove();
+            addChatMessage('error', err.message);
+            // Неудачный ход не оставляем в переписке: иначе следующий
+            // запрос уйдёт с вопросом без ответа и сервер его отклонит.
+            chatMessages.pop();
+        }
+        finally { chatBusy = false; chatSend.disabled = false; }
+    }
+
+    chatForm.addEventListener('submit', e => {
+        e.preventDefault();
+        sendChat(chatInput.value);
+    });
+    chatInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            sendChat(chatInput.value);
+        }
+    });
 
     // Объяснение одного замечания: разворачивает сухую формулировку
     // правила в «что не так, почему так принято, как починить руками».
@@ -998,6 +1107,7 @@
         updateAutofixButton(report);
         updatePreviewButton();
         updateAiBibButton(report);
+        resetChat(report);
         pdfButton.disabled = !!report.error;
         if (report.error) {
             reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`;

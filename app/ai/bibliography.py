@@ -21,7 +21,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.ai.client import EFFORT, MODEL, get_client
+from app.ai.providers import get_provider
+from app.ai.schema import strict_schema
 
 MAX_ENTRIES = 100
 MAX_REQUIREMENTS_CHARS = 4000
@@ -167,20 +168,15 @@ def review_bibliography(
 
     trimmed = entries[:MAX_ENTRIES]
 
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=16000,
+    raw = get_provider().parse(
         system=SYSTEM,
-        output_config={"effort": EFFORT},
-        output_format=BibliographyReview,
-        messages=[{
-            "role": "user",
-            "content": _build_prompt(trimmed, style, requirements),
-        }],
+        prompt=_build_prompt(trimmed, style, requirements),
+        schema=strict_schema(BibliographyReview),
     )
+    review = BibliographyReview.model_validate(raw)
 
     return {
-        "entries": [e.model_dump() for e in response.parsed_output.entries],
+        "entries": [e.model_dump() for e in review.entries],
         "style_label": "Требования кафедры" if requirements else style_label(style),
         "truncated": max(0, len(entries) - len(trimmed)),
     }
