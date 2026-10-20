@@ -341,6 +341,7 @@ def check_text_alignment(document: DocxDocument) -> list[dict[str, Any]]:
                 }
                 issues.append({
                     "location": f"Абзац: «{preview}»",
+                    "para_index": i,
                     "code": "ALIGN_NOT_JUSTIFY",
                     "message": "Текст не выровнен по ширине",
                     "description": "Основной текст работы выравнивается по ширине (ГОСТ 7.32)",
@@ -384,6 +385,7 @@ def check_extra_blank_lines(document: DocxDocument) -> list[dict[str, Any]]:
                 preview = paragraph.text.strip()[:40]
                 issues.append({
                     "location": f"Перед абзацем: «{preview}»",
+                    "para_index": idx,
                     "code": "EXTRA_BLANK_LINES",
                     "message": f"{consecutive_empty} пустых строк подряд",
                     "description": "Лишние пустые строки. Допускается не более одной.",
@@ -399,7 +401,7 @@ def check_extra_blank_lines(document: DocxDocument) -> list[dict[str, Any]]:
 
 def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
-    for paragraph in document.paragraphs:
+    for para_index, paragraph in enumerate(document.paragraphs):
         if not _is_heading(paragraph):
             continue
         # Оглавление (стили toc N) — не заголовки, оно не должно быть жирным
@@ -411,6 +413,7 @@ def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
         if text.endswith("."):
             issues.append({
                 "location": f"Заголовок: «{text[:60]}»",
+                "para_index": para_index,
                 "code": "HEADING_ENDS_WITH_DOT",
                 "message": "Заголовок заканчивается точкой",
                 "description": "По ГОСТ заголовки не заканчиваются точкой",
@@ -441,6 +444,7 @@ def check_headings(document: DocxDocument) -> list[dict[str, Any]]:
         if not is_bold and paragraph.runs:
             issues.append({
                 "location": f"Заголовок: «{text[:60]}»",
+                "para_index": para_index,
                 "code": "HEADING_NOT_BOLD",
                 "message": "Заголовок не выделен жирным",
                 "description": "Заголовки оформляются полужирным начертанием",

@@ -32,6 +32,7 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+from app.checkers.docx_preview import build_preview
 from app.checkers.docx_extras import (
     check_bibliography,
     check_figure_captions,
@@ -522,6 +523,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "FONT_NOT_SET",
                     "message": "Шрифт не задан явно",
                     "description": (
@@ -537,6 +539,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "FONT_MISMATCH",
                     "message": f"Шрифт «{font_name}», требуется «{r_font}»",
                     "description": f"Основной шрифт работы — {r_font}",
@@ -553,6 +556,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "FONT_SIZE_NOT_SET",
                     "message": "Размер шрифта не задан явно",
                     "description": f"Требуется размер {r_size} пт",
@@ -566,6 +570,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "FONT_SIZE_MISMATCH",
                     "message": (
                         f"Размер шрифта {font_size:.1f} пт, "
@@ -585,6 +590,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "LINE_SPACING_NOT_SET",
                     "message": "Межстрочный интервал не задан или задан как точное значение",
                     "description": (
@@ -600,6 +606,7 @@ def check_docx_document(file_path: Path, original_filename: str,
             issues.append(
                 {
                     "location": location,
+                    "para_index": para_index,
                     "code": "LINE_SPACING_MISMATCH",
                     "message": (
                         f"Межстрочный интервал {line_spacing:.2f}, "
@@ -623,6 +630,7 @@ def check_docx_document(file_path: Path, original_filename: str,
                 issues.append(
                     {
                         "location": location,
+                        "para_index": para_index,
                         "code": "INDENT_NOT_SET",
                         "message": "Отступ первой строки не задан",
                         "description": (
@@ -638,6 +646,7 @@ def check_docx_document(file_path: Path, original_filename: str,
                 issues.append(
                     {
                         "location": location,
+                        "para_index": para_index,
                         "code": "INDENT_MISMATCH",
                         "message": (
                             f"Отступ первой строки {indent:.2f} см, "
@@ -713,4 +722,7 @@ def check_docx_document(file_path: Path, original_filename: str,
         "issues": issues,
         "paragraphs_checked": paragraph_number,
         "source_lines": [],
+        # Структура документа для показа с подсветкой: индексы абзацев
+        # совпадают с para_index в замечаниях
+        "document_preview": build_preview(document),
     }

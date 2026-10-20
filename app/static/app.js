@@ -20,6 +20,8 @@
     const verdictTitle = $('verdict-title'), verdictSub = $('verdict-sub');
     const sevBarHigh = $('sev-bar-high'), sevBarMedium = $('sev-bar-medium'), sevBarLow = $('sev-bar-low');
     const sourceViewer = $('source-viewer'), sourceCode = $('source-code'), sourceMinimap = $('source-minimap');
+    const docViewer = $('doc-viewer'), docPage = $('doc-page');
+    const docMinimap = $('doc-minimap'), docNote = $('doc-note');
     const themeToggle = $('theme-toggle');
     const historyList = $('history-list'), historyEmpty = $('history-empty'), clearHistoryBtn = $('clear-history-button');
 
@@ -380,7 +382,7 @@
     });
 
     resetButton.addEventListener('click', () => {
-        setReportVisible(false); sourceViewer.hidden = true;
+        setReportVisible(false); sourceViewer.hidden = true; docViewer.hidden = true;
         uploadIdle.hidden = false; uploadLoading.hidden = true;
         fileInput.value = '';
         currentFile = null; currentReport = null;
@@ -692,6 +694,8 @@
         autofixButton.disabled = true;
         updatePreviewButton();
         pdfButton.disabled = true;
+        sourceViewer.hidden = true;
+        docViewer.hidden = true;
         reportBody.innerHTML = '';
 
         if (data.total_issues === 0) {
@@ -823,7 +827,11 @@
         updateAutofixButton(report);
         updatePreviewButton();
         pdfButton.disabled = !!report.error;
-        if (report.error) { reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`; sourceViewer.hidden = true; return; }
+        if (report.error) {
+            reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`;
+            sourceViewer.hidden = true; docViewer.hidden = true;
+            return;
+        }
         if (!report.issues.length) {
             reportBody.innerHTML = '<div class="empty-state"><div class="empty-state__icon">✓</div><div class="empty-state__title">Замечаний не найдено</div><div class="empty-state__text">Файл соответствует всем проверяемым требованиям.</div></div>';
             autofixButton.disabled = true;
@@ -831,8 +839,10 @@
             // Still show source code without errors if available
             if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
                 renderSourceViewer(report);
+                docViewer.hidden = true;
             } else {
                 sourceViewer.hidden = true;
+                renderDocViewer(report);
             }
             return;
         }
@@ -848,10 +858,19 @@
         });
 
         // Render source viewer for Python files
+        // Привязка замечаний к абзацам документа, как errorsByLine для кода
+        const issuesByPara = {};
+        report.issues.forEach(iss => {
+            if (iss.para_index === undefined) return;
+            (issuesByPara[iss.para_index] = issuesByPara[iss.para_index] || []).push(iss);
+        });
+
         if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
             renderSourceViewer(report, errorsByLine);
+            docViewer.hidden = true;
         } else {
             sourceViewer.hidden = true;
+            renderDocViewer(report, issuesByPara);
         }
 
         // Group issues by code
@@ -896,6 +915,9 @@
                 if (iss.line && isCodeReport(report)) {
                     el.style.cursor = 'pointer';
                     el.addEventListener('click', () => scrollToSourceLine(iss.line));
+                } else if (iss.para_index !== undefined) {
+                    el.style.cursor = 'pointer';
+                    el.addEventListener('click', () => highlightDocParagraph(iss.para_index));
                 }
                 reportBody.appendChild(el);
                 issueObserver.observe(el);
@@ -925,6 +947,9 @@
                     if (iss.line && isCodeReport(report)) {
                         el.style.cursor = 'pointer';
                         el.addEventListener('click', () => scrollToSourceLine(iss.line));
+                    } else if (iss.para_index !== undefined) {
+                        el.style.cursor = 'pointer';
+                        el.addEventListener('click', () => highlightDocParagraph(iss.para_index));
                     }
                     body.appendChild(el);
                     issueObserver.observe(el);
@@ -947,6 +972,119 @@
 
     // ─── Source Viewer ───
     let activeTooltip = null;
+
+    // ─── Просмотр документа с подсветкой ───
+    // Отчёт по коду показывает исходник, и видно, где замечание. Для .docx
+    // такого не было: пользователь читал «Абзац 17» и искал его глазами
+    // в Word. Здесь строится приближение документа, где проблемные абзацы
+    // подсвечены, а клик по замечанию прокручивает к нужному месту.
+
+    const SEVERITY_RANK = { low: 1, medium: 2, high: 3 };
+
+    function worstSeverity(issues) {
+        return issues.reduce((worst, iss) => (
+            SEVERITY_RANK[iss.severity] > SEVERITY_RANK[worst] ? iss.severity : worst
+        ), 'low');
+    }
+
+    function buildParagraphElement(block, issues) {
+        const el = document.createElement('p');
+        const classes = ['doc-p'];
+        if (block.heading) classes.push(`doc-p--h${block.heading}`);
+        else if (block.align === 'justify' || block.align === 'left') classes.push('doc-p--indent');
+        if (block.align && block.align !== 'left') classes.push(`doc-p--${block.align}`);
+        if (block.bold && !block.heading) classes.push('doc-p--bold');
+        if (block.empty) classes.push('doc-p--empty');
+
+        if (issues && issues.length) {
+            classes.push(`doc-p--${worstSeverity(issues)}`, 'doc-p--flagged');
+            // Счётчик вместо списка кодов: коды повторялись на каждом абзаце
+            // и сбивали перенос первой строки, документ выглядел кривее,
+            // чем он есть на самом деле.
+            const badge = document.createElement('span');
+            badge.className = 'doc-p__count';
+            badge.textContent = issues.length;
+            el.appendChild(badge);
+            el.title = issues.map(i => `${i.code}: ${i.description || i.message}`).join('\n');
+            el.addEventListener('click', () => highlightDocParagraph(block.index));
+        }
+
+        el.className = classes.join(' ');
+        el.setAttribute('data-para', block.index);
+        el.appendChild(document.createTextNode(block.text || ''));
+        return el;
+    }
+
+    function buildTableElement(block) {
+        const table = document.createElement('table');
+        table.className = 'doc-table';
+        block.rows.forEach(row => {
+            const tr = document.createElement('tr');
+            row.forEach(cell => {
+                const td = document.createElement('td');
+                td.textContent = cell;
+                tr.appendChild(td);
+            });
+            table.appendChild(tr);
+        });
+        if (block.truncated_rows) {
+            const note = document.createElement('div');
+            note.className = 'doc-table__more';
+            note.textContent = `…ещё строк: ${block.truncated_rows}`;
+            const wrap = document.createElement('div');
+            wrap.appendChild(table); wrap.appendChild(note);
+            return wrap;
+        }
+        return table;
+    }
+
+    function renderDocViewer(report, issuesByPara) {
+        const preview = report.document_preview;
+        if (!preview || !preview.blocks || !preview.blocks.length) {
+            docViewer.hidden = true;
+            return;
+        }
+        issuesByPara = issuesByPara || {};
+        docViewer.hidden = false;
+        docPage.innerHTML = '';
+        docMinimap.innerHTML = '';
+
+        const fragment = document.createDocumentFragment();
+        preview.blocks.forEach(block => {
+            fragment.appendChild(block.kind === 'table'
+                ? buildTableElement(block)
+                : buildParagraphElement(block, issuesByPara[block.index]));
+        });
+        docPage.appendChild(fragment);
+
+        // Миникарта: отметка на каждый проблемный абзац
+        const total = preview.blocks.length || 1;
+        preview.blocks.forEach((block, position) => {
+            const issues = block.kind === 'table' ? null : issuesByPara[block.index];
+            if (!issues || !issues.length) return;
+            const mark = document.createElement('div');
+            mark.className = `minimap__mark minimap__mark--${worstSeverity(issues)}`;
+            mark.style.left = (position / total * 100) + '%';
+            mark.title = `Абзац ${block.index + 1}: ${[...new Set(issues.map(i => i.code))].join(', ')}`;
+            mark.addEventListener('click', () => highlightDocParagraph(block.index));
+            docMinimap.appendChild(mark);
+        });
+
+        const withoutPlace = report.issues.filter(i => i.para_index === undefined).length;
+        const notes = [];
+        if (preview.truncated) notes.push(`Показана часть документа, не поместилось блоков: ${preview.truncated}.`);
+        if (withoutPlace) notes.push(`Замечаний, относящихся к документу целиком: ${withoutPlace}.`);
+        docNote.textContent = notes.join(' ');
+        docNote.hidden = !notes.length;
+    }
+
+    function highlightDocParagraph(index) {
+        const el = docPage.querySelector(`[data-para="${index}"]`);
+        if (!el) return;
+        docPage.querySelectorAll('.doc-p--active').forEach(p => p.classList.remove('doc-p--active'));
+        el.classList.add('doc-p--active');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 
     function renderSourceViewer(report, errorsByLine) {
         errorsByLine = errorsByLine || {};
@@ -1167,6 +1305,7 @@
         const h = getHistory();
         // Сохраняем полный отчёт + timestamp
         const entry = Object.assign({}, r, { timestamp: Date.now() });
+        delete entry.document_preview;   // до 100 КБ на документ, localStorage не резиновый
         h.unshift(entry);
         // Ограничиваем 30 записями; для экономии localStorage — обрезаем source_lines у старых
         const trimmed = h.slice(0, 30).map((e, idx) => {
